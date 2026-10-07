@@ -2,7 +2,7 @@
 
 Texas Hold'em where you bet **bullets**, not chips. A 3D bluffing game that runs in the browser, inspired by the mood of *Liar's Bar*.
 
-**Play:** https://<your-username>.github.io/bullet-poker/
+**Play:** https://silky-itt.github.io/bulletpoker/
 
 - 2–4 seats, any mix of humans (hot-seat on one device) and bots
 - Six-chamber revolver: fold or lose the showdown and you pull the trigger with the bullets you loaded
