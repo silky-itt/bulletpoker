@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Texas Hold'em where you bet bullets. A 3D bluffing game in the browser.">
+<title>Bullet Poker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Playfair+Display:ital,wght@0,700;0,900;1,900&family=Be+Vietnam+Pro:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: full-screen 3D bar; HUD floats over it — status top, big moments center, hand + actions bottom. Single dark theme by choice (see DESIGN.md §3). */
+:root{
+  --bg:#0d0a08; --wood:#231811; --wood-a:rgba(28,19,13,.88); --line:#4a3726;
+  --paper:#f1e8d4; --ink:#1d1611; --red:#b8322a; --fg:#eadcc2; --muted:#a58f72;
+  --lamp:#e2a64a; --blood:#c8412f; --ok:#8cbc72;
+  --f-display:'Playfair Display', Georgia, serif;
+  --f-body:'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --f-mono:'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --f-slab:'Alfa Slab One', 'Rockwell', Georgia, serif;
+  --gold:#e8c24a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--f-body);overflow:hidden}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block}
+#labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.label3d{position:absolute;left:0;top:0;display:grid;justify-items:center;gap:2px;background:var(--wood-a);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;white-space:nowrap}
+.label3d b{font-weight:700}
+.label3d .d{font:700 10px/16px var(--f-mono);width:16px;height:16px;border-radius:50%;background:var(--paper);color:var(--ink);text-align:center;font-style:normal;position:absolute;top:-8px;right:-8px}
+.label3d .bul{font-size:11px;letter-spacing:2px;color:var(--lamp)}
+.label3d .bul .emp{color:var(--muted);opacity:.6}
+.label3d .st{font-size:11px;color:var(--muted)}
+.label3d.turn{border-color:var(--lamp);box-shadow:0 0 18px -4px var(--lamp)}
+.label3d.turn .st{color:var(--lamp)}
+.label3d.won{border-color:var(--ok)}
+.label3d.dead{opacity:.5}
+
+.hud{position:fixed;left:0;right:0;padding-inline:16px;pointer-events:none;display:flex;gap:10px;flex-wrap:wrap}
+.hud > *{pointer-events:auto}
+.hud.top{top:0;padding-top:calc(env(safe-area-inset-top,0px) + 12px);justify-content:space-between;align-items:flex-start}
+.hud.bottom{bottom:0;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 14px);justify-content:center;align-items:flex-end}
+.chip{background:var(--wood-a);border:1px solid var(--line);border-radius:10px;padding:8px 12px;backdrop-filter:blur(4px)}
+.brand{font-family:var(--f-display);font-style:italic;font-weight:900;color:var(--lamp);font-size:20px;line-height:1}
+.label{font:500 11px/1.3 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.big{font-family:var(--f-display);font-size:20px;font-weight:700}
+button{font:inherit;cursor:pointer;border:0}
+button:focus-visible,input:focus-visible,select:focus-visible,.portrait:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
+.btn{background:var(--lamp);color:var(--ink);font-weight:700;padding:11px 16px;border-radius:7px}
+.btn:disabled{opacity:.3;cursor:not-allowed}
+.btn.ghost{background:var(--wood-a);color:var(--fg);border:1px solid var(--line)}
+.btn.ghost.on{border-color:var(--lamp);color:var(--lamp)}
+.btn.small{padding:8px 12px;font-size:13px}
+.btn.fold{background:#3a2a20;color:var(--fg)}
+.btn.red{background:var(--blood);color:#fff4ec}
+kbd{font:500 10px var(--f-mono);opacity:.6;margin-left:6px;border:1px solid currentColor;border-radius:3px;padding:0 3px}
+.controls{display:grid;gap:10px;justify-items:center;width:100%;max-width:780px}
+.controls > *{max-width:100%}
+.mine{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center}
+.row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:center}
+.bullets{font-size:15px;letter-spacing:3px;color:var(--lamp)}
+.bullets .emp{color:var(--muted);opacity:.55}
+.risk{font:500 12px var(--f-mono);color:var(--muted);text-align:center}
+.risk b{color:var(--fg)}
+.log{width:min(360px,100%);max-height:150px;overflow:auto;font-size:12.5px;color:var(--muted);display:grid;gap:2px}
+.log div:first-child{color:var(--fg)}
+.boardstrip{display:grid;gap:8px;justify-items:center}
+
+.card2d{width:56px;height:80px;border-radius:7px;background:var(--paper);color:var(--ink);position:relative;flex:none;font-family:var(--f-display);font-weight:900;box-shadow:0 2px 0 rgba(0,0,0,.4)}
+.card2d.red{color:var(--red)}
+.card2d .r{position:absolute;top:5px;left:7px;font-size:19px;line-height:1}
+.card2d .s{position:absolute;right:6px;bottom:4px;font-size:30px;line-height:1}
+.card2d.empty{background:transparent;border:1.5px dashed var(--line);box-shadow:none}
+.card2d.pick{cursor:pointer}
+.card2d.mini{width:40px;height:56px}.card2d.mini .r{font-size:15px;top:4px;left:5px}.card2d.mini .s{font-size:20px}
+.card2d.sel{box-shadow:0 0 0 3px var(--lamp);transform:translateY(-6px)}
+
+.overlay{position:fixed;inset:0;display:grid;place-items:center;padding:16px;z-index:10;overflow:auto}
+.overlay.dim{background:rgba(10,7,5,.8)}
+.overlay.solid{background:var(--bg)}
+.panel{background:var(--wood);border:1px solid var(--line);border-radius:12px;padding:20px;display:grid;gap:16px;width:min(760px,100%)}
+h1,h2,h3{font-family:var(--f-display);margin:0;line-height:1.05;text-wrap:balance}
+h1{font-size:clamp(32px,6vw,52px);font-style:italic;font-weight:900;color:var(--lamp)}
+h2{font-size:21px}
+h3{font-size:17px}
+.sub{color:var(--muted);margin:0}
+.seat{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px}
+.seat.off{opacity:.45}
+.seat-head{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
+.seat-head input[type=text],.seat-head select{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px 9px;font:inherit;min-width:0;width:100%}
+.seat-head select{width:auto}
+.portraits{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.portrait{background:var(--bg);border:1.5px solid var(--line);border-radius:9px;padding:0;overflow:hidden;color:var(--fg);text-align:left;display:grid}
+.portrait img{display:block;width:100%;aspect-ratio:22/25;object-fit:cover;background:#1a120c}
+.portrait .ph{width:100%;aspect-ratio:22/25;display:grid;place-items:center;font-family:var(--f-display);font-size:28px;background:#1a120c}
+.portrait .cap{padding:6px 8px 8px;display:grid;gap:1px}
+.portrait .cap b{font-size:14px}
+.portrait .cap span{font-size:11px;color:var(--muted);line-height:1.3}
+.portrait.sel{border-color:var(--lamp);box-shadow:0 0 0 2px var(--lamp)}
+.portrait.taken:not(.sel){opacity:.55}
+.rules{display:grid;gap:5px;margin:0;padding-left:20px;font-size:14px}
+.rules b{color:var(--lamp)}
+details summary{cursor:pointer;font-weight:700}
+.shot{font-family:var(--f-display);font-weight:900;font-style:italic;font-size:clamp(44px,11vw,96px);line-height:1;text-shadow:0 4px 30px rgba(0,0,0,.8);text-align:center}
+.shot.dead{color:var(--blood)}.shot.live{color:var(--ok)}.shot.aim{color:var(--fg);font-size:clamp(20px,4vw,30px)}
+.results{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 76px);display:grid;justify-items:center;gap:0;pointer-events:none;z-index:3;animation:resIn .45s ease-out both}
+@keyframes resIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+.rboard{position:relative;display:flex;gap:10px;padding:14px 22px;border:2px solid var(--gold);background:rgba(18,12,8,.82);margin-bottom:18px}
+.rboard .gem{position:absolute;left:50%;width:14px;height:14px;background:var(--gold);transform:translateX(-50%) rotate(45deg)}
+.rboard .gem.t{top:-8px}.rboard .gem.b{bottom:-8px}
+.rrow{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1.25fr);align-items:center;gap:22px;padding:10px 16px;background:rgba(18,12,8,.66);border-top:2px solid var(--gold);margin-top:-2px}
+.rrow:last-child{border-bottom:2px solid var(--gold)}
+.rrow.win{background:linear-gradient(90deg,rgba(18,12,8,.66),rgba(120,92,24,.55),rgba(18,12,8,.66))}
+.rname{font:700 clamp(16px,2.4vw,26px)/1.1 var(--f-body);text-align:right;color:var(--paper);text-shadow:0 2px 6px #000;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rcards{display:flex;gap:10px}
+.rhand{font-family:var(--f-slab);font-size:clamp(18px,2.8vw,32px);line-height:1;color:var(--paper);text-transform:uppercase;text-shadow:0 2px 0 #3a2a10,0 3px 10px #000;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.rhand .ord{color:var(--gold);font-size:1.15em}
+.rhand .ord sup{font-size:.5em;vertical-align:baseline;position:relative;top:-.05em}
+.rtag{font:700 12px/1 var(--f-mono);letter-spacing:.12em;padding:5px 8px;border-radius:4px;text-shadow:none;font-family:var(--f-mono)}
+.rtag.safe{background:var(--ok);color:var(--ink)}
+.rtag.shoot{background:var(--blood);color:#fff4ec}
+.card2d.res{width:58px;height:82px}.card2d.res .r{font-size:24px;top:6px;left:0;right:0;text-align:center}.card2d.res .s{font-size:30px;left:0;right:0;bottom:8px;text-align:center}
+.cylwrap{display:grid;justify-items:center;gap:10px}
+.cylsvg{width:clamp(110px,16vw,150px);height:auto;filter:drop-shadow(0 6px 20px rgba(0,0,0,.7))}
+.cylsvg.spin{animation:spin 1.6s cubic-bezier(.15,.6,.25,1) both}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(1440deg)}}
+.cylsvg .ch{fill:#0b0b0b;stroke:#555;stroke-width:2}
+.cylsvg .ch.full{fill:#c8963c;stroke:#e8c27a}
+.cylsvg .ch.pop{animation:pop .3s ease-out}
+@keyframes pop{from{transform:scale(1.6)}to{transform:scale(1)}}
+.cylsvg .pr{fill:#b0603a}
+@media (max-width:620px){ .rrow{grid-template-columns:auto minmax(0,1fr);gap:4px 12px}.rname{grid-column:1/-1;text-align:left;font-size:15px}.card2d.res{width:42px;height:60px}.card2d.res .r{font-size:17px}.card2d.res .s{font-size:21px}.rboard{gap:6px;padding:10px 12px}.rhand{font-size:18px} }
+.redflash{position:fixed;inset:0;background:var(--blood);opacity:0;pointer-events:none;z-index:9}
+.redflash.on{animation:rf 1.2s ease-out}
+@keyframes rf{0%{opacity:.75}100%{opacity:0}}
+@media (max-width:620px){
+  .portraits{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .portrait .cap span{display:none}
+  kbd{display:none}
+  .hide-sm{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<canvas id="view" aria-label="3D poker table"></canvas>
+<div id="labels"></div>
+<div class="redflash" id="redflash"></div>
+<div id="hud"></div>
+<div id="ov"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="engine.js"></script>
+<script src="game.js"></script>
+<script src="scene.js"></script>
+<script src="audio.js"></script>
+<script>
+(() => {
+const E = window.PokerEngine, CH = PokerScene.CHARACTERS;
+const $hud = document.getElementById('hud'), $ov = document.getElementById('ov');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// Bot personalities per character (DESIGN.md §3.2)
+const STYLE = {fox: {bluff: 0.16}, pig: {nerve: 0.12}, bear: {aggr: 0.7, bluff: 0.03}, bull: {aggr: 1.4}};
+
+let setup = [
+  {on:true, name:'You',     kind:'human', animal:'bull'},
+  {on:true, name:'Rusty',   kind:'bot',   animal:'fox'},
+  {on:true, name:'Bruno',   kind:'bot',   animal:'bear'},
+  {on:true, name:'Truffle', kind:'bot',   animal:'pig'},
+];
+try { const s = JSON.parse(localStorage.getItem('bp-setup')); if (Array.isArray(s) && s.length === 4 && s.every(x => CH[x.animal])) setup = s; } catch {}
+const saveSetup = () => { try { localStorage.setItem('bp-setup', JSON.stringify(setup)); } catch {} };
+
+let scene3d = null;
+try { scene3d = PokerScene.createScene(document.getElementById('view'), document.getElementById('labels')); } catch (e) { console.error(e); }
+let portraits = {};
+try { portraits = PokerScene.renderPortraits(); } catch (e) { console.error(e); }
+const audio = PokerAudio.createAudio();
+
+let game = null, viewer = null, multiHuman = false, sw = null, logOpen = false, boardOpen = false;
+
+const card2d = (c, cls = '', attrs = '') => {
+  if (!c) return `<div class="card2d empty ${cls}"></div>`;
+  const red = c.s === 1 || c.s === 2;
+  return `<div class="card2d ${red ? 'red' : ''} ${cls}" ${attrs} aria-label="${E.rankLabel(c.r)}${E.SUITS[c.s]}"><span class="r">${E.rankLabel(c.r)}</span><span class="s">${E.SUITS[c.s]}</span></div>`;
+};
+const bulletsHTML = n => `<span class="bullets" aria-label="${n} of 6 bullets">${'●'.repeat(n)}<span class="emp">${'○'.repeat(Math.max(0, 6 - n))}</span></span>`;
+
+/* ---------- character select ---------- */
+function renderSetup(){
+  $hud.innerHTML = '';
+  const on = setup.filter(s => s.on).length;
+  $ov.innerHTML = `<div class="overlay dim"><div class="panel">
+    <div><h1>Bullet Poker</h1><p class="sub">Texas Hold'em where you bet bullets. Six chambers. Last one standing wins.</p></div>
+    ${scene3d ? '' : '<p class="sub" style="color:var(--blood)">This browser could not start WebGL, so the 3D table cannot be drawn.</p>'}
+    ${setup.map((s, i) => `
+      <section class="seat ${s.on ? '' : 'off'}" aria-label="Seat ${i+1}">
+        <div class="seat-head">
+          <input type="checkbox" id="on${i}" data-i="${i}" ${s.on ? 'checked' : ''} ${i < 2 ? 'disabled' : ''} aria-label="Seat ${i+1} plays">
+          <input type="text" id="nm${i}" data-i="${i}" value="${esc(s.name)}" maxlength="14" aria-label="Seat ${i+1} name">
+          <select id="kd${i}" data-i="${i}" aria-label="Human or bot">
+            <option value="human" ${s.kind === 'human' ? 'selected' : ''}>Human</option>
+            <option value="bot" ${s.kind === 'bot' ? 'selected' : ''}>Bot</option>
+          </select>
+        </div>
+        <div class="portraits" role="radiogroup" aria-label="Character for seat ${i+1}">
+          ${Object.entries(CH).map(([k, c]) => {
+            const takenBy = setup.findIndex((o, j) => j !== i && o.on && o.animal === k);
+            return `<button class="portrait ${s.animal === k ? 'sel' : ''} ${takenBy >= 0 ? 'taken' : ''}" data-i="${i}" data-a="${k}" role="radio" aria-checked="${s.animal === k}">
+              ${portraits[k] ? `<img src="${portraits[k]}" alt="${c.animal}">` : `<div class="ph">${c.animal[0]}</div>`}
+              <div class="cap"><b>${c.name}</b><span>${c.animal}. ${c.blurb}</span></div></button>`;
+          }).join('')}
+        </div>
+      </section>`).join('')}
+    <div class="row" style="justify-content:flex-start"><button class="btn" id="start">Take a seat (${on} players)</button>
+      <span class="sub" style="font-size:13px">Two humans? Set both seats to Human and pass the device on each turn.</span></div>
+    <details><summary>How to play</summary>
+    <ol class="rules">
+      <li>Every hand, each player starts with <b>1 bullet</b> loaded. Two hole cards, five community cards, four betting rounds.</li>
+      <li><b>Call</b> matches the highest load. <b>Raise</b> adds 1 bullet. <b>All-in</b> goes straight to 6.</li>
+      <li><b>Fold</b> and you pull the trigger right away with what you loaded. Lose the showdown and you pull it too. The winner is safe.</li>
+      <li>With k bullets the chance of death is k/6. A full load of 6 still <b>jams 5%</b> of the time.</li>
+      <li><b>Coward's Fold</b> (once per match): fold and take only 1 bullet.</li>
+      <li><b>Switch</b> (once per match): swap a hole card for one of 4 / 3 / 2 offered cards (pre-flop / flop / turn). No All-in on that turn.</li>
+      <li>Keys: <b>F</b> fold, <b>C</b> check/call, <b>R</b> raise, <b>A</b> all-in, <b>S</b> switch, <b>B</b> board view, <b>M</b> change music.</li>
+    </ol></details>
+  </div></div>`;
+  $ov.querySelectorAll('input[type=checkbox]').forEach(el => el.onchange = () => { setup[el.dataset.i].on = el.checked; saveSetup(); renderSetup(); });
+  $ov.querySelectorAll('input[type=text]').forEach(el => el.oninput = () => { setup[el.dataset.i].name = el.value; saveSetup(); });
+  $ov.querySelectorAll('select').forEach(el => el.onchange = () => { setup[el.dataset.i].kind = el.value; saveSetup(); });
+  $ov.querySelectorAll('.portrait').forEach(el => el.onclick = () => {
+    const i = +el.dataset.i, a = el.dataset.a;
+    const j = setup.findIndex((o, k) => k !== i && o.on && o.animal === a);
+    if (j >= 0) setup[j].animal = setup[i].animal; // swap so each seat stays unique
+    const oldName = CH[setup[i].animal].name;
+    if (setup[i].kind === 'bot' && setup[i].name === oldName) setup[i].name = CH[a].name;
+    setup[i].animal = a;
+    audio.unlock(); audio.play('ui');
+    saveSetup(); renderSetup();
+  });
+  document.getElementById('start').onclick = startGame;
+}
+
+function startGame(){
+  audio.unlock(); audio.play('ui');
+  if (game) game.stop();
+  const seats = setup.filter(s => s.on).map((s, i) => ({name: s.name.trim() || `Seat ${i+1}`, kind: s.kind, animal: s.animal, style: STYLE[s.animal]}));
+  const humans = seats.map((s, i) => s.kind === 'human' ? i : -1).filter(i => i >= 0);
+  multiHuman = humans.length > 1;
+  viewer = humans.length ? humans[0] : null;
+  sw = null; boardOpen = false;
+  $ov.innerHTML = '';
+  game = PokerGame.createGame(seats, render, {onEvent});
+  if (scene3d) scene3d.setup(game.state.players);
+  game.start();
+}
+function leave(){ if (game) game.stop(); game = null; audio.tension(false); if (scene3d) scene3d.setBoardView(false); renderSetup(); }
+
+/* ---------- game events → sound + faces ---------- */
+function onEvent(type, d, S){
+  const talk = () => scene3d && d.pid != null && scene3d.react(d.pid, 'talk');
+  switch (type) {
+    case 'deal': audio.play('deal', d.count); break;
+    case 'board': audio.play('board', d.count); break;
+    case 'check': audio.play('check'); talk(); break;
+    case 'bet': audio.play('bet', d.added); talk(); break;
+    case 'allin': audio.play('allin'); talk(); break;
+    case 'fold': audio.play('fold'); talk(); break;
+    case 'switch': audio.play('switch'); break;
+    case 'loadStart': audio.play('loadStart'); audio.tension(true); break;
+    case 'loadBullet': audio.play('loadBullet'); break;
+    case 'aim': audio.play('spin'); break;
+    case 'click': audio.play('click'); audio.tension(false); break;
+    case 'jam': audio.play('jam'); audio.tension(false); break;
+    case 'bang': audio.play('bang'); audio.tension(false); if (d.pid === viewer) setTimeout(() => audio.play('lose'), 600); flashRed(); break;
+    case 'win': case 'showdown': audio.play('win'); if (scene3d) d.ids.forEach(id => scene3d.react(id, 'happy')); break;
+    case 'yourTurn': if (S.players[d.pid].kind === 'human') audio.play('yourTurn'); break;
+    case 'gameOver': audio.play(d.winner === viewer ? 'win' : 'lose'); break;
+  }
+}
+function flashRed(){ const f = document.getElementById('redflash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
+
+/* ---------- showdown board + cylinder ---------- */
+function resultsHTML(S){
+  const live = S.players.filter(p => p.inHand && !p.folded && p.hole.length === 2);
+  const rows = live.map(p => { const b = E.bestHand(p.hole.concat(S.board)); return {p, b, r: E.handRank10(b)}; })
+    .sort((a, b) => b.b.score - a.b.score);
+  return `<div class="results" aria-live="polite">
+    <div class="rboard"><span class="gem t"></span>${S.board.map(c => card2d(c, 'res')).join('')}<span class="gem b"></span></div>
+    ${rows.map(({p, r}) => {
+      const win = S.winners.includes(p.id);
+      return `<div class="rrow ${win ? 'win' : ''}"><div class="rname">${esc(p.name)}</div>
+        <div class="rcards">${p.hole.map(c => card2d(c, 'res')).join('')}</div>
+        <div class="rhand"><span class="ord">${r.place}<sup>${r.suffix}</sup></span><span>${r.name}</span>
+          <span class="rtag ${win ? 'safe' : 'shoot'}">${win ? 'SAFE' : 'PULLS ' + p.bet}</span></div></div>`;
+    }).join('')}
+  </div>`;
+}
+let lastLoaded = 0;
+function cylinderHTML(g, p){
+  const holes = Array.from({length: 6}, (_, c) => {
+    const a = (c * 60 - 90) * Math.PI / 180, x = Math.cos(a) * 31, y = Math.sin(a) * 31;
+    const full = g.state === 'load' ? c < g.loaded : c < g.bullets;
+    const pop = g.state === 'load' && c === g.loaded - 1 && g.loaded !== lastLoaded;
+    return `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><circle class="ch ${full ? 'full' : ''} ${pop ? 'pop' : ''}" r="12"/>${full ? '<circle class="pr" r="4"/>' : ''}</g>`;
+  }).join('');
+  lastLoaded = g.state === 'load' ? g.loaded : 0;
+  const caption = g.state === 'load' ? `${esc(p.name)} loads ${g.loaded} / ${g.bullets}` : `${esc(p.name)} pulls the trigger · ${g.bullets} of 6`;
+  return `<div class="cylwrap"><svg class="cylsvg ${g.state === 'aim' ? 'spin' : ''}" viewBox="-60 -60 120 120" aria-hidden="true">
+    <circle r="56" fill="#2c2c2e" stroke="#6a6a6a" stroke-width="3"/>${[0,1,2,3,4,5].map(c => { const a = (c * 60 - 60) * Math.PI / 180; return `<circle cx="${(Math.cos(a)*50).toFixed(1)}" cy="${(Math.sin(a)*50).toFixed(1)}" r="5" fill="#1a1a1a"/>`; }).join('')}
+    <circle r="9" fill="#151515"/>${holes}</svg><div class="shot aim">${caption}</div></div>`;
+}
+function musicIntensity(S){
+  if (S.showdown) return 2;
+  if (S.currentBet >= 5) return 3;
+  if (S.currentBet >= 3) return 2;
+  if (S.board.length >= 3 || S.currentBet >= 2) return 1;
+  return 0;
+}
+
+/* ---------- HUD ---------- */
+function render(){
+  if (!game) return;
+  const S = game.state;
+  const needCover = multiHuman && S.awaiting != null && S.awaiting !== viewer && !S.over;
+  if (scene3d) scene3d.update(S, viewer, needCover);
+  const me = viewer != null ? S.players[viewer] : null;
+  const myTurn = S.awaiting != null && S.awaiting === viewer && !S.gun && !needCover;
+
+  let center = '';
+  if (S.gun) {
+    const p = S.players[S.gun.pid];
+    center = S.gun.state === 'load' || S.gun.state === 'aim' ? cylinderHTML(S.gun, p)
+      : S.gun.state === 'bang' ? `<div class="shot dead">BANG!</div>`
+      : S.gun.state === 'jam' ? `<div class="shot live">Jammed!</div>` : `<div class="shot live">Click.</div>`;
+  }
+  const results = S.showdown && S.winners && !S.gun ? resultsHTML(S) : '';
+  audio.setIntensity(musicIntensity(S));
+
+  const board = boardOpen ? `<div class="chip boardstrip"><div class="label">Community cards · ${game.STREET_NAME[S.street] || ''}</div><div class="row">${Array.from({length:5}, (_, i) => card2d(S.board[i], 'mini')).join('')}</div></div>` : '';
+
+  let controls = '';
+  if (me && !S.over) {
+    const best = me.hole.length === 2 && !needCover ? (S.board.length >= 3 ? E.bestHand(me.hole.concat(S.board)).name : (me.hole[0].r === me.hole[1].r ? 'Pocket pair' : '')) : '';
+    let buttons = '';
+    if (myTurn && !sw) {
+      const o = game.options(viewer);
+      buttons = `<div class="row">
+        <button class="btn fold" id="aFold">Fold · take ${o.bet}<kbd>F</kbd></button>
+        ${o.canCoward ? `<button class="btn ghost" id="aCoward">Coward's Fold · take 1</button>` : ''}
+        <button class="btn" id="aCall">${o.canCheck ? 'Check' : `Call · load ${o.currentBet}`}<kbd>C</kbd></button>
+        ${o.canRaise ? `<button class="btn ghost" id="aRaise">Raise to ${o.currentBet + 1}<kbd>R</kbd></button>` : ''}
+        ${o.canAllIn ? `<button class="btn red" id="aAll">ALL-IN · 6<kbd>A</kbd></button>` : ''}
+        ${o.canSwitch ? `<button class="btn ghost" id="aSwitch">Switch · ${o.switchCount} offers<kbd>S</kbd></button>` : ''}
+      </div>
+      <div class="risk">Fold now: <b>${Math.round(o.bet / 6 * 100)}%</b> death · Call and lose: <b>${o.currentBet >= 6 ? 95 : Math.round(o.currentBet / 6 * 100)}%</b> death</div>`;
+    } else if (myTurn && sw) {
+      buttons = `<div class="chip" style="display:grid;gap:10px;justify-items:center">
+        <div class="label">Switch: pick a new card, then the hole card to give up</div>
+        <div class="row">${sw.cards.map((c, k) => card2d(c, 'pick ' + (sw.pick === k ? 'sel' : ''), `data-offer="${k}" role="button" tabindex="0"`)).join('')}</div>
+        <div class="label">Your hole cards</div>
+        <div class="row">${me.hole.map((c, k) => card2d(c, 'pick', `data-hole="${k}" role="button" tabindex="0"`)).join('')}</div>
+        <button class="btn ghost small" id="swCancel">Keep my cards</button></div>`;
+    } else {
+      buttons = `<div class="risk">${!me.alive ? "You're out. Stick around and watch." : me.folded ? 'You folded. Wait for the next hand.' : S.gun ? '' : 'Waiting for the others...'}</div>`;
+    }
+    controls = `<div class="controls">
+      <div class="chip mine">${me.hole.length && !needCover && !sw ? `<div class="row">${me.hole.map(c => card2d(c, 'mini')).join('')}</div>` : ''}
+        <div><div class="label">${esc(me.name)} · loaded</div>${bulletsHTML(me.bet)}</div>${best ? `<div class="big">${best}</div>` : ''}
+        <span class="label hide-sm">${me.switchUsed ? '' : 'Switch ready'}${!me.switchUsed && !me.cowardUsed ? ' · ' : ''}${me.cowardUsed ? '' : 'Coward ready'}</span></div>
+      ${buttons}</div>`;
+  }
+
+  $hud.innerHTML = `
+  <div class="hud top">
+    <div class="chip"><div class="brand">Bullet Poker</div><div class="label">Hand ${S.handNo} · ${game.STREET_NAME[S.street] || ''} · to call ${S.currentBet}</div></div>
+    <div class="row">
+      <button class="btn ghost small ${audio.music ? 'on' : ''}" id="tMusic" title="Switch track">♪ ${audio.musicLabel}</button>
+      <button class="btn ghost small ${audio.sfx ? 'on' : ''}" id="tSfx" aria-pressed="${audio.sfx}">Sound</button>
+      <button class="btn ghost small ${boardOpen ? 'on' : ''}" id="tBoard" aria-pressed="${boardOpen}">Board<kbd>B</kbd></button>
+      <button class="btn ghost small ${logOpen ? 'on' : ''}" id="tLog">Log</button>
+      <button class="btn ghost small" id="quit">Leave</button>
+    </div>
+  </div>
+  <div class="hud" style="top:30%;justify-content:center;pointer-events:none">${center}</div>
+  ${results}
+  ${logOpen ? `<div class="hud" style="top:96px;justify-content:flex-start"><div class="chip log">${S.log.slice(0, 30).map(l => `<div>${esc(l)}</div>`).join('')}</div></div>` : ''}
+  <div class="hud bottom"><div class="controls">${board}${controls ? controls.replace(/^<div class="controls">|<\/div>$/g, '') : ''}</div></div>`;
+
+  if (S.over) {
+    $ov.innerHTML = `<div class="overlay dim"><div class="panel" style="text-align:center;justify-items:center;width:min(460px,100%)">
+      <div class="label">Last one standing · after ${S.handNo} hands</div>
+      <h1>${S.winner != null ? esc(S.players[S.winner].name) : 'Nobody'}</h1>
+      <div class="row"><button class="btn" id="again">Play again</button><button class="btn ghost" id="toSetup">Change players</button></div></div></div>`;
+  } else if (needCover) {
+    $ov.innerHTML = `<div class="overlay solid"><div class="panel" style="text-align:center;justify-items:center;width:min(460px,100%)">
+      <div class="label">Pass the device</div><h2>${esc(S.players[S.awaiting].name)}, you're up</h2><p class="sub">Everyone else, look away.</p>
+      <button class="btn" id="reveal">I'm ${esc(S.players[S.awaiting].name)}, take my seat</button></div></div>`;
+  } else $ov.innerHTML = '';
+
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = () => { audio.play('ui'); fn(); }; };
+  on('aFold', () => game.act({type:'fold'}));
+  on('aCoward', () => game.act({type:'coward'}));
+  on('aCall', () => game.act({type:'call'}));
+  on('aRaise', () => game.act({type:'raise'}));
+  on('aAll', () => game.act({type:'allin'}));
+  on('aSwitch', openSwitch);
+  on('swCancel', () => { game.switchPick(viewer, null, null); sw = null; render(); });
+  on('reveal', () => { viewer = S.awaiting; render(); });
+  on('again', startGame); on('toSetup', leave); on('quit', leave);
+  on('tLog', () => { logOpen = !logOpen; render(); });
+  on('tBoard', toggleBoard);
+  on('tMusic', () => { audio.unlock(); audio.cycleMusic(); render(); });
+  on('tSfx', () => { audio.unlock(); audio.setSfx(!audio.sfx); render(); });
+  $hud.querySelectorAll('[data-offer]').forEach(el => el.onclick = () => { sw.pick = +el.dataset.offer; audio.play('ui'); render(); });
+  $hud.querySelectorAll('[data-hole]').forEach(el => el.onclick = () => {
+    if (sw.pick == null) return;
+    game.switchPick(viewer, +el.dataset.hole, sw.pick); sw = null; render();
+  });
+}
+function openSwitch(){ const cards = game.switchOpen(viewer); if (cards) { sw = {cards, pick: null}; render(); } }
+function toggleBoard(){ boardOpen = !boardOpen; if (scene3d) scene3d.setBoardView(boardOpen); render(); }
+
+/* ---------- keyboard ---------- */
+document.addEventListener('keydown', e => {
+  const tg = e.target;
+  if (!game || (tg && tg.matches && tg.matches('input,select,textarea')) || e.metaKey || e.ctrlKey) return;
+  const k = e.key.toLowerCase();
+  if (k === 'b') return toggleBoard();
+  if (k === 'm') { audio.unlock(); audio.cycleMusic(); return render(); }
+  const S = game.state;
+  if (!(S.awaiting === viewer && !S.gun && !sw)) return;
+  const o = game.options(viewer);
+  const map = {f: {type:'fold'}, c: {type:'call'}, r: o.canRaise && {type:'raise'}, a: o.canAllIn && {type:'allin'}};
+  if (k === 's' && o.canSwitch) return openSwitch();
+  if (map[k]) { audio.play('ui'); game.act(map[k]); }
+});
+
+window.__bp = {get game() { return game; }}; // debug hook for automated screenshots
+renderSetup();
+})();
+</script>

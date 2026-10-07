@@ -1,0 +1,31 @@
+# Bullet Poker
+
+Texas Hold'em where you bet **bullets**, not chips. A 3D bluffing game that runs in the browser, inspired by the mood of *Liar's Bar*.
+
+**Play:** https://<your-username>.github.io/bullet-poker/
+
+- 2–4 seats, any mix of humans (hot-seat on one device) and bots
+- Six-chamber revolver: fold or lose the showdown and you pull the trigger with the bullets you loaded
+- Switch and Coward's Fold, once per match
+- Low-poly animal characters with expressive faces
+- Synthesized adaptive music and sound effects (Web Audio, no asset files)
+
+## Run locally
+No build step. Serve the folder with any static server:
+
+```sh
+python3 -m http.server 8000
+# open http://localhost:8000
+```
+
+## Files
+| File | Purpose |
+|---|---|
+| `index.html` | HUD, character select, input |
+| `engine.js` | Cards, hand evaluator, Monte Carlo equity |
+| `game.js` | Rules and turn flow (no DOM) |
+| `scene.js` | Three.js scene, characters, camera |
+| `audio.js` | Web Audio music and SFX |
+| `DESIGN.md` | Design bible: visuals, UX, audio, rules |
+
+Three.js r128 is loaded from cdnjs.
