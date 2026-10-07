@@ -1,5 +1,7 @@
 # Bullet Poker
 
+![Bullet Poker](assets/og-image.png)
+
 Texas Hold'em where you bet **bullets**, not chips. A 3D bluffing game that runs in the browser, inspired by the mood of *Liar's Bar*.
 
 **Play:** https://silky-itt.github.io/bulletpoker/
@@ -28,5 +30,6 @@ python3 -m http.server 8000
 | `audio.js` | Web Audio music and SFX |
 | `net.js` | Online tables: MQTT lobby + PeerJS game traffic |
 | `DESIGN.md` | Design bible: visuals, UX, audio, rules |
+| `assets/` | Site icon (SVG + PNG sizes) and the link-preview image |
 
 Three.js r128 (cdnjs), PeerJS 1.5.4 (jsDelivr) and MQTT.js 5.10.1 (unpkg) are loaded from CDNs.

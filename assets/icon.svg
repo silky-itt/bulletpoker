@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="80%"><stop offset="0" stop-color="#3b2818"/><stop offset="1" stop-color="#0d0a08"/></radialGradient>
+    <radialGradient id="steel" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#5a5a5e"/><stop offset="1" stop-color="#222224"/></radialGradient>
+    <radialGradient id="brass" cx="38%" cy="35%" r="70%"><stop offset="0" stop-color="#f4cf7a"/><stop offset="1" stop-color="#b07a2a"/></radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="190" fill="url(#steel)" stroke="#e2a64a" stroke-width="16"/>
+  <g fill="#0b0b0b" stroke="#6a6a6a" stroke-width="6">
+    <circle cx="256" cy="140" r="46"/><circle cx="356" cy="198" r="46"/><circle cx="356" cy="314" r="46"/>
+    <circle cx="256" cy="372" r="46"/><circle cx="156" cy="314" r="46"/>
+  </g>
+  <circle cx="156" cy="198" r="46" fill="url(#brass)" stroke="#f4cf7a" stroke-width="6"/>
+  <circle cx="156" cy="198" r="16" fill="#b0603a"/>
+  <circle cx="256" cy="256" r="30" fill="#151515" stroke="#6a6a6a" stroke-width="6"/>
+</svg>

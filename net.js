@@ -17,6 +17,61 @@ const STALE_MS = 30000;
 const makeCode = (n = 5) => Array.from({length: n}, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
 const cleanName = (s, fallback, max = 14) => (String(s || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, max) || fallback);
+const ANIMALS = ['fox', 'pig', 'bear', 'bull'];
+const validAnimal = (a, fallback = 'fox') => ANIMALS.includes(a) ? a : fallback;
+const ACTIONS = ['fold', 'coward', 'check', 'call', 'raise', 'allin'];
+const STREETS = ['preflop', 'flop', 'turn', 'river', 'showdown'];
+const GUN_STATES = ['load', 'aim', 'click', 'bang', 'godsave'];
+const EVENTS = ['deal', 'board', 'check', 'bet', 'allin', 'fold', 'switch', 'loadStart', 'loadBullet', 'aim', 'click', 'bang', 'godsave', 'gunDown', 'win', 'showdown', 'yourTurn', 'thinking', 'gameOver'];
+
+/* ---------- guest-side validation: never trust what arrives over the wire ---------- */
+const int = (v, lo, hi, d = lo) => { v = Number(v); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : d; };
+const arr = v => Array.isArray(v) ? v : [];
+const seatOrNull = (v, n) => v == null ? null : int(v, 0, n - 1, null);
+function cleanCard(c) {
+  if (!c || c.hidden || !Number.isFinite(+c.r) || !Number.isFinite(+c.s)) return {hidden: true};
+  const r = int(c.r, 2, 14), s = int(c.s, 0, 3);
+  return {r, s, id: s * 13 + r};
+}
+function sanitizeState(S, seat) {
+  if (!S || typeof S !== 'object') return null;
+  const players = arr(S.players).slice(0, MAX_SEATS).map((p, i) => (p = p && typeof p === 'object' ? p : {}, {
+    id: i, name: cleanName(p.name, 'Player', 22), kind: 'human', animal: validAnimal(p.animal),
+    alive: !!p.alive, hole: arr(p.hole).slice(0, 2).map(cleanCard), bet: int(p.bet, 0, 6),
+    folded: !!p.folded, acted: !!p.acted, inHand: !!p.inHand, cowardUsed: !!p.cowardUsed,
+    switchUsed: !!p.switchUsed, switchedNow: !!p.switchedNow, lastAction: String(p.lastAction || '').slice(0, 24),
+  }));
+  const n = players.length || 1;
+  const g = S.gun && typeof S.gun === 'object' ? S.gun : null;
+  return {
+    players, board: arr(S.board).slice(0, 5).map(cleanCard).filter(c => !c.hidden),
+    street: STREETS.includes(S.street) ? S.street : 'preflop', currentBet: int(S.currentBet, 1, 6),
+    dealer: int(S.dealer, -1, n - 1, -1), handNo: int(S.handNo, 0, 1e6),
+    toAct: seatOrNull(S.toAct, n), awaiting: seatOrNull(S.awaiting, n), showdown: !!S.showdown,
+    winners: S.winners == null ? null : arr(S.winners).slice(0, MAX_SEATS).map(w => int(w, 0, n - 1)),
+    gun: g && GUN_STATES.includes(g.state) ? {pid: int(g.pid, 0, n - 1), bullets: int(g.bullets, 1, 6), loaded: int(g.loaded, 0, 6), state: g.state, reason: String(g.reason || '').slice(0, 40)} : null,
+    winner: seatOrNull(S.winner, n), over: !!S.over,
+    switchOffer: S.switchOffer && int(S.switchOffer.pid, 0, n - 1) === seat ? {pid: seat, cards: arr(S.switchOffer.cards).slice(0, 4).map(cleanCard).filter(c => !c.hidden)} : null,
+    log: arr(S.log).slice(0, 60).map(l => String(l).slice(0, 200)),
+    gameId: String(S.gameId || '').slice(0, 16),
+  };
+}
+function sanitizeEvent(type, d) {
+  if (!EVENTS.includes(type)) return null;
+  d = d && typeof d === 'object' ? d : {};
+  const out = {};
+  if (d.pid != null) out.pid = int(d.pid, 0, MAX_SEATS - 1);
+  for (const k of ['count', 'added', 'total', 'n', 'bullets']) if (d[k] != null) out[k] = int(d[k], 0, 8);
+  if (d.ids != null) out.ids = arr(d.ids).slice(0, MAX_SEATS).map(x => int(x, 0, MAX_SEATS - 1));
+  if (d.winner != null) out.winner = int(d.winner, 0, MAX_SEATS - 1);
+  if (d.street != null) out.street = STREETS.includes(d.street) ? d.street : 'flop';
+  return out;
+}
+function sanitizeRoom(r) {
+  if (!r || typeof r !== 'object') return null;
+  return {code: cleanCode(r.code), name: cleanName(r.name, 'Table', 24), isPublic: r.isPublic !== false, status: r.status === 'playing' ? 'playing' : 'waiting',
+    seats: arr(r.seats).slice(0, MAX_SEATS).map(s => ({key: String(s && s.key || '').slice(0, 12), name: cleanName(s && s.name, 'Player'), animal: validAnimal(s && s.animal), host: !!(s && s.host)}))};
+}
 
 // What one seat is allowed to see: other players' hole cards stay hidden until showdown.
 function viewFor(S, seat) {
@@ -38,20 +93,24 @@ function peerTransport() {
   return {
     listen(code, onConn, onReady, onError) {
       const peer = new Peer(PEER_PREFIX + code, {debug: 0});
-      peer.on('open', () => onReady());
+      let ready = false, dead = false;
+      peer.on('open', () => { if (!ready) { ready = true; onReady(); } });
       peer.on('connection', c => onConn(wrapConn(c)));
-      peer.on('error', e => onError(e.type === 'unavailable-id' ? 'taken' : (e.type || 'error')));
-      return () => peer.destroy();
+      // Once open, signaling hiccups must not kill a running table: open data channels keep working.
+      peer.on('disconnected', () => { if (!dead) setTimeout(() => { if (!dead && !peer.destroyed) peer.reconnect(); }, 2000); });
+      peer.on('error', e => { if (!ready) onError(e.type === 'unavailable-id' ? 'taken' : (e.type || 'error')); });
+      return () => { dead = true; peer.destroy(); };
     },
     connect(code, onReady, onError) {
       const peer = new Peer({debug: 0});
-      let conn;
+      let conn, ready = false;
       peer.on('open', () => {
+        if (conn) return;
         const c = peer.connect(PEER_PREFIX + code, {reliable: true});
         conn = wrapConn(c);
-        c.on('open', () => onReady(conn));
+        c.on('open', () => { ready = true; onReady(conn); });
       });
-      peer.on('error', e => onError(e.type === 'peer-unavailable' ? 'Room not found. Check the code, or the host may have closed it.' : 'Connection failed (' + (e.type || 'error') + ').'));
+      peer.on('error', e => !ready && onError(e.type === 'peer-unavailable' ? 'Room not found. Check the code, or the host may have closed it.' : 'Connection failed (' + (e.type || 'error') + ').'));
       return () => peer.destroy();
     },
   };
@@ -119,8 +178,8 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
     seats: [{key: 'host', name: cleanName(me.name, 'Host'), animal: me.animal, host: true}],
   };
   const guests = new Map(); // key -> {conn, seatIdx}
-  let game = null, seatOfKey = new Map(), keyOfSeat = new Map();
-  const handlers = {state: null, event: null};
+  let game = null, seatOfKey = new Map();
+  const gone = new Set(); // guests who left during a game
 
   const roomView = () => ({code: room.code, name: room.name, isPublic: room.isPublic, status: room.status, seats: room.seats.map(s => ({key: s.key, name: s.name, animal: s.animal, host: !!s.host}))});
   const broadcast = msg => { for (const g of guests.values()) g.conn.send(msg); };
@@ -132,6 +191,7 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
   }
   function unannounce() { if (mq) mq.publish(TOPIC + room.code, '', {retain: true, qos: 0}); }
 
+  function pruneGone() { if (gone.size) { room.seats = room.seats.filter(s => !gone.has(s.key)); gone.clear(); } }
   function freeAnimal(want) {
     const used = new Set(room.seats.map(s => s.animal));
     if (!used.has(want)) return want;
@@ -147,7 +207,7 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
         if (room.status !== 'waiting') { conn.send({t: 'bye', reason: 'This game has already started.'}); return setTimeout(() => conn.close(), 300); }
         if (room.seats.length >= MAX_SEATS) { conn.send({t: 'bye', reason: 'The table is full.'}); return setTimeout(() => conn.close(), 300); }
         key = 'g' + Math.random().toString(36).slice(2, 8);
-        room.seats.push({key, name: cleanName(msg.name, 'Guest'), animal: freeAnimal(msg.animal)});
+        room.seats.push({key, name: cleanName(msg.name, 'Guest'), animal: freeAnimal(validAnimal(msg.animal))});
         guests.set(key, {conn});
         conn.send({t: 'welcome', key});
         changed();
@@ -155,10 +215,10 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
       }
       if (!key) return;
       const seat = seatOfKey.get(key);
-      if (msg.t === 'pick' && room.status === 'waiting') { const s = room.seats.find(x => x.key === key); if (s && !room.seats.some(o => o !== s && o.animal === msg.animal)) { s.animal = msg.animal; changed(); } }
+      if (msg.t === 'pick' && room.status === 'waiting') { const s = room.seats.find(x => x.key === key); if (s && ANIMALS.includes(msg.animal) && s.animal !== msg.animal && !room.seats.some(o => o !== s && o.animal === msg.animal)) { s.animal = msg.animal; changed(); } }
       if (!game || seat == null) return;
       const S = game.state;
-      if (msg.t === 'act' && S.awaiting === seat && msg.a && typeof msg.a.type === 'string') game.act({type: msg.a.type});
+      if (msg.t === 'act' && S.awaiting === seat && msg.a && ACTIONS.includes(msg.a.type)) game.act({type: msg.a.type});
       if (msg.t === 'swOpen' && S.awaiting === seat) game.switchOpen(seat);
       if (msg.t === 'swPick' && S.awaiting === seat) game.switchPick(seat, msg.h == null ? null : msg.h | 0, msg.o == null ? null : msg.o | 0);
     });
@@ -166,7 +226,7 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
       if (!key || !guests.has(key)) return;
       guests.delete(key);
       if (room.status === 'waiting') { room.seats = room.seats.filter(s => s.key !== key); changed(); }
-      else if (game && seatOfKey.has(key)) game.removePlayer(seatOfKey.get(key));
+      else { gone.add(key); if (game && seatOfKey.has(key)) game.removePlayer(seatOfKey.get(key)); }
     });
   }
 
@@ -190,21 +250,23 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
   return {
     get room() { return roomView(); },
     get code() { return room.code; },
-    pickAnimal(a) { if (!room.seats.some((o, i) => i > 0 && o.animal === a)) { room.seats[0].animal = a; changed(); } },
-    // Seats for PokerGame, in join order. Everyone is a human player.
+    pickAnimal(a) { if (ANIMALS.includes(a) && !room.seats.some((o, i) => i > 0 && o.animal === a)) { room.seats[0].animal = a; changed(); return true; } return false; },
+    // Seats for PokerGame, in join order. Guests who left during the last game are dropped.
     seatsForGame() {
+      pruneGone();
       const seats = room.seats.map(s => ({name: s.name, kind: 'human', animal: s.animal, key: s.key}));
-      seatOfKey = new Map(); keyOfSeat = new Map();
-      seats.forEach((s, i) => { if (s.key) { seatOfKey.set(s.key, i); keyOfSeat.set(i, s.key); } });
+      seatOfKey = new Map();
+      seats.forEach((s, i) => seatOfKey.set(s.key, i));
       return seats;
     },
+    get playerCount() { return room.seats.filter(s => !gone.has(s.key)).length; },
     attach(g) { game = g; room.status = 'playing'; changed(); },
     // Called by the host UI on every state change / event.
     pushState(S) {
       for (const [key, g] of guests) { const seat = seatOfKey.get(key); if (seat != null) g.conn.send({t: 'state', S: viewFor(S, seat), seat}); }
     },
     pushEvent(type, data) { broadcast({t: 'ev', type, data}); },
-    backToRoom() { game = null; room.status = 'waiting'; changed(); broadcast({t: 'lobby'}); },
+    backToRoom() { game = null; room.status = 'waiting'; pruneGone(); changed(); broadcast({t: 'lobby'}); },
     close() {
       closed = true;
       broadcast({t: 'bye', reason: 'The host closed the room.'});
@@ -219,23 +281,23 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
 /* ---------- join a room ---------- */
 function joinRoom({code, me, onRoom, onState, onEvent, onLobby, onClose, transport}) {
   const T = transport || peerTransport();
-  let conn = null, done = false, key = null;
-  const fail = reason => { if (done) return; done = true; onClose && onClose(reason); stop && stop(); };
-  const stop = T.connect(cleanCode(code), c => {
+  let conn = null, done = false, key = null, stop = null, seat = null, timeout = null;
+  const fail = reason => { if (done) return; done = true; clearTimeout(timeout); onClose && onClose(String(reason || 'Disconnected.').slice(0, 160)); stop && stop(); };
+  stop = T.connect(cleanCode(code), c => {
     conn = c;
     c.on('data', msg => {
       if (!msg || typeof msg !== 'object') return;
-      if (msg.t === 'welcome') key = msg.key;
-      if (msg.t === 'room') onRoom && onRoom(msg.room, key);
-      if (msg.t === 'state') onState && onState(msg.S, msg.seat);
-      if (msg.t === 'ev') onEvent && onEvent(msg.type, msg.data);
+      if (msg.t === 'welcome') key = String(msg.key || '').slice(0, 12);
+      if (msg.t === 'room') { const r = sanitizeRoom(msg.room); if (r) onRoom && onRoom(r, key); }
+      if (msg.t === 'state') { seat = int(msg.seat, 0, MAX_SEATS - 1); const S = sanitizeState(msg.S, seat); if (S && seat < S.players.length) onState && onState(S, seat); }
+      if (msg.t === 'ev') { const d = sanitizeEvent(msg.type, msg.data); if (d) onEvent && onEvent(msg.type, d); }
       if (msg.t === 'lobby') onLobby && onLobby();
       if (msg.t === 'bye') fail(msg.reason);
     });
     c.on('close', () => fail('Lost connection to the host.'));
     c.send({t: 'hello', v: V, name: me.name, animal: me.animal});
   }, err => fail(err));
-  const timeout = setTimeout(() => { if (!conn) fail('Could not reach the room. Check the code and your connection.'); }, 15000);
+  timeout = setTimeout(() => { if (!key) fail('Could not reach the room. Check the code and your connection.'); }, 20000);
   return {
     send(m) { conn && conn.send(m); },
     pickAnimal(a) { conn && conn.send({t: 'pick', animal: a}); },
@@ -244,5 +306,5 @@ function joinRoom({code, me, onRoom, onState, onEvent, onLobby, onClose, transpo
   };
 }
 
-root.PokerNet = {watchLobby, hostRoom, joinRoom, viewFor, cleanCode, MAX_SEATS};
+root.PokerNet = {watchLobby, hostRoom, joinRoom, viewFor, sanitizeState, sanitizeEvent, cleanCode, MAX_SEATS, ANIMALS};
 })(typeof window !== 'undefined' ? window : globalThis);

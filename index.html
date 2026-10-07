@@ -3,6 +3,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Texas Hold'em where you bet bullets. A 3D bluffing game in the browser.">
+<meta name="theme-color" content="#0d0a08">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Bullet Poker">
+<meta property="og:title" content="Bullet Poker">
+<meta property="og:description" content="Texas Hold'em where you bet bullets. Six chambers. Last one standing wins. Play online with 2–4 friends.">
+<meta property="og:url" content="https://silky-itt.github.io/bulletpoker/">
+<meta property="og:image" content="https://silky-itt.github.io/bulletpoker/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://silky-itt.github.io/bulletpoker/assets/og-image.png">
 <title>Bullet Poker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -210,7 +225,7 @@ const audio = PokerAudio.createAudio();
    mode 'guest': this browser renders the state the host sends. */
 let session = null;        // {mode, net, game?, S?, seat, room, gameId}
 let lobbyStop = null, lobbyRooms = [], lobbyStatus = 'connecting', joinCode = '', notice = '';
-let viewer = null, sw = null, logOpen = false, boardOpen = false;
+let viewer = null, sw = null, logOpen = false, boardOpen = false, pickerOpen = false;
 
 const card2d = (c, cls = '', attrs = '') => {
   if (!c || c.hidden) return `<div class="card2d empty ${cls}"></div>`;
@@ -260,24 +275,37 @@ const RULES = `<ol class="rules">
 
 /* ---------- screen 2: lobby (open tables, host, join by code) ---------- */
 function showLobby(){
-  if (!lobbyStop) lobbyStop = NET.watchLobby(list => { lobbyRooms = list; if (!session) renderLobby(); }, st => { lobbyStatus = st; if (!session) renderLobby(); });
+  if (!lobbyStop) lobbyStop = NET.watchLobby(list => { lobbyRooms = list; if (!session) updateRoomList(); }, st => { lobbyStatus = st; if (!session) updateRoomList(); });
   renderLobby();
+}
+function lobbyStatusText(){
+  return lobbyStatus === 'online' ? `${lobbyRooms.length} open table${lobbyRooms.length === 1 ? '' : 's'}` : lobbyStatus === 'unavailable' ? 'Table list unavailable. You can still host or join with a code.' : 'Looking for tables...';
+}
+function roomListHTML(){
+  return lobbyRooms.length ? lobbyRooms.map(r => {
+    const full = r.players >= NET.MAX_SEATS, playing = r.status === 'playing';
+    return `<div class="roomrow"><div class="rinfo"><b>${esc(r.name)}</b><span>Host: ${esc(r.host)}</span></div>
+      <span class="pill ${playing ? 'busy' : ''}">${playing ? 'In game' : `${r.players}/${NET.MAX_SEATS}`}</span>
+      <button class="btn small" data-join="${esc(r.code)}" ${full || playing ? 'disabled' : ''}>Join</button></div>`;
+  }).join('') : '<div class="empty">No public tables right now. Host one!</div>';
+}
+// Refresh only the table list (re-rendering the whole lobby would steal focus from the inputs).
+function updateRoomList(){
+  const list = document.getElementById('roomList'), st = document.getElementById('lobbyStatus');
+  if (!list || !st) return;
+  st.textContent = lobbyStatusText();
+  list.innerHTML = roomListHTML();
+  list.querySelectorAll('[data-join]').forEach(el => el.onclick = () => { audio.unlock(); audio.play('ui'); joinTable(el.dataset.join); });
 }
 function renderLobby(){
   $hud.innerHTML = '';
-  const status = lobbyStatus === 'online' ? `${lobbyRooms.length} open table${lobbyRooms.length === 1 ? '' : 's'}` : lobbyStatus === 'unavailable' ? 'Table list unavailable. You can still host or join with a code.' : 'Looking for tables...';
   $ov.innerHTML = `<div class="overlay dim"><div class="panel">
     <div class="row" style="justify-content:space-between">
       <div class="row" style="justify-content:flex-start;gap:12px">${portraits[profile.animal] ? `<img class="avatar" src="${portraits[profile.animal]}" alt="">` : ''}<div><div class="label">Playing as</div><h2>${esc(profile.name)} · ${CH[profile.animal].name}</h2></div></div>
       <button class="btn ghost small" id="editProfile">Change</button>
     </div>
-    <section class="box"><h3>Open tables</h3><p class="sub" style="font-size:13px">${status}</p>
-      <div class="rooms">${lobbyRooms.length ? lobbyRooms.map(r => {
-        const full = r.players >= NET.MAX_SEATS, playing = r.status === 'playing';
-        return `<div class="roomrow"><div class="rinfo"><b>${esc(r.name)}</b><span>Host: ${esc(r.host)}</span></div>
-          <span class="pill ${playing ? 'busy' : ''}">${playing ? 'In game' : `${r.players}/${NET.MAX_SEATS}`}</span>
-          <button class="btn small" data-join="${esc(r.code)}" ${full || playing ? 'disabled' : ''}>Join</button></div>`;
-      }).join('') : '<div class="empty">No public tables right now. Host one!</div>'}</div>
+    <section class="box"><h3>Open tables</h3><p class="sub" style="font-size:13px" id="lobbyStatus" aria-live="polite"></p>
+      <div class="rooms" id="roomList"></div>
     </section>
     <div class="cols">
       <section class="box"><h3>Host a table</h3>
@@ -296,7 +324,7 @@ function renderLobby(){
   onClick('editProfile', () => { notice = ''; renderProfile(); });
   onClick('host', hostTable);
   onClick('join', () => joinCode && joinTable(joinCode));
-  $ov.querySelectorAll('[data-join]').forEach(el => el.onclick = () => { audio.unlock(); joinTable(el.dataset.join); });
+  updateRoomList();
 }
 
 /* ---------- host / join ---------- */
@@ -361,19 +389,24 @@ function renderRoom(){
       return `<div class="seatcard ${s.key === myKey ? 'me' : ''}">${portraits[s.animal] ? `<img src="${portraits[s.animal]}" alt="${CH[s.animal].animal}">` : ''}
         <b>${esc(s.name)}</b><span>${CH[s.animal].name}${s.host ? ' · Host' : ''}${s.key === myKey ? ' · You' : ''}</span></div>`;
     }).join('')}</div>
-    ${me ? `<details><summary>Change character</summary><div class="portraits" style="margin-top:10px">${Object.keys(CH).map(k => portraitBtn(k, {sel: me.animal === k, taken: taken.has(k), data: `data-pick="${k}"`})).join('')}</div></details>` : ''}
+    ${me ? `<details id="picker" ${pickerOpen ? 'open' : ''}><summary>Change character</summary><div class="portraits" style="margin-top:10px">${Object.keys(CH).map(k => portraitBtn(k, {sel: me.animal === k, taken: taken.has(k), data: `data-pick="${k}"`})).join('')}</div></details>` : ''}
     <div class="row" style="justify-content:flex-start">
       ${isHost ? `<button class="btn" id="start" ${canStart ? '' : 'disabled'}>Start game (${r.seats.length} player${r.seats.length === 1 ? '' : 's'})</button>` : ''}
       <button class="btn ghost" id="leave">${isHost ? 'Close table' : 'Leave'}</button>
       <span class="sub" style="font-size:13px">${isHost ? (canStart ? 'Everyone in? Start when ready.' : 'Waiting for at least one more player. Share the code or the link.') : 'Waiting for the host to start...'}</span>
     </div>
   </div></div>`;
-  onClick('copy', () => { const el = document.getElementById('invite'); navigator.clipboard?.writeText(el.value).then(() => { document.getElementById('copy').textContent = 'Copied'; }, () => el.select()); });
+  const pk = document.getElementById('picker'); if (pk) pk.ontoggle = () => { pickerOpen = pk.open; };
+  onClick('copy', () => {
+    const el = document.getElementById('invite'), btn = document.getElementById('copy');
+    const done = () => { btn.textContent = 'Copied'; }, manual = () => { el.select(); btn.textContent = 'Press Ctrl/Cmd+C'; };
+    try { navigator.clipboard.writeText(el.value).then(done, manual); } catch { manual(); }
+  });
   onClick('leave', leaveSession);
   onClick('start', startHostedGame);
   $ov.querySelectorAll('[data-pick]').forEach(el => el.onclick = () => {
-    const a = el.dataset.pick; profile.animal = a; saveProfile(); audio.play('ui');
-    if (isHost) session.net.pickAnimal(a); else session.net.pickAnimal(a);
+    audio.play('ui');
+    session.net.pickAnimal(el.dataset.pick);
   });
 }
 
@@ -540,7 +573,7 @@ function render(){
     $ov.innerHTML = `<div class="overlay dim"><div class="panel" style="text-align:center;justify-items:center;width:min(460px,100%)">
       <div class="label">Last one standing · after ${S.handNo} hands</div>
       <h1>${S.winner != null ? esc(S.players[S.winner].name.replace(' (left)', '')) : 'Nobody'}</h1>
-      ${host ? `<div class="row"><button class="btn" id="again">Play again</button><button class="btn ghost" id="toRoom">Back to the room</button></div>`
+      ${host ? `<div class="row"><button class="btn" id="again" ${session.net.playerCount >= 2 ? '' : 'disabled title="Everyone else left the table"'}>Play again</button><button class="btn ghost" id="toRoom">Back to the room</button></div>`
              : `<p class="sub">Waiting for the host to start another round...</p><button class="btn ghost" id="quit2">Leave</button>`}</div></div>`;
   } else $ov.innerHTML = '';
 
@@ -552,7 +585,7 @@ function render(){
   on('aAll', () => ctl.act({type:'allin'}));
   on('aSwitch', openSwitch);
   on('swCancel', () => { ctl.switchPick(null, null); sw = null; render(); });
-  on('again', () => { session.game.stop(); startHostedGame(); });
+  on('again', () => { if (session.net.playerCount < 2) return; session.game.stop(); startHostedGame(); });
   on('toRoom', () => { session.game.stop(); session.game = null; session.inGame = false; resetTable(); session.net.backToRoom(); renderRoom(); });
   on('quit', leaveSession); on('quit2', leaveSession);
   on('tLog', () => { logOpen = !logOpen; render(); });

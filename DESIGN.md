@@ -236,6 +236,11 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 
 ---
 
+## 10. Site identity
+- **Icon** (`assets/icon.svg`): a six-chamber revolver cylinder seen from behind, steel with a lamp-amber rim, one chamber loaded with a brass round, on a dark wood rounded square. Exported to 32 px favicon, 180 px Apple touch icon, 192/512 px for the web manifest.
+- **Link preview** (`assets/og-image.png`, 1200×630): icon + "Bullet Poker" in Playfair italic + tagline + feature tags on the left; the four characters' portraits (rendered by `renderPortraits`) staggered on the right; gold bar at the bottom.
+- `manifest.webmanifest` lets phones "Add to Home Screen" with the icon and a dark splash.
+
 ## References
 - Liar's Bar on Steam: https://store.steampowered.com/app/3097560/Liars_Bar/
 - Steam news API (patch notes, incl. *Liar's Poker has arrived!* 2025-06-27 and *Liar's Deck Remastered* 2026-07-03): `https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=3097560`
