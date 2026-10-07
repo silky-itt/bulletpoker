@@ -136,6 +136,29 @@ details summary{cursor:pointer;font-weight:700}
 .godsave{display:grid;justify-items:center;gap:6px;text-align:center}
 .shot.god{color:#ffe08a;text-shadow:0 0 24px rgba(255,214,110,.9),0 4px 30px rgba(0,0,0,.8);animation:godIn .6s cubic-bezier(.2,1.6,.4,1) both}
 @keyframes godIn{from{transform:scale(.4);opacity:0}to{transform:none;opacity:1}}
+.field{display:grid;gap:6px}
+.field input,.invite{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:10px 11px;font:inherit;min-width:0;width:100%}
+.invite{flex:1 1 260px;width:auto;font:500 13px var(--f-mono);color:var(--muted)}
+.check{display:flex;gap:8px;align-items:center;font-size:14px}
+.box{border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:10px;align-content:start;min-width:0}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.rooms{display:grid;gap:6px;max-height:240px;overflow:auto}
+.roomrow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:8px 10px;background:var(--bg);border-radius:8px}
+.rinfo{display:grid;min-width:0}.rinfo b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rinfo span{font-size:12px;color:var(--muted)}
+.pill{font:500 12px var(--f-mono);padding:3px 8px;border-radius:20px;border:1px solid var(--ok);color:var(--ok)}
+.pill.busy{border-color:var(--muted);color:var(--muted)}
+.empty{color:var(--muted);font-size:14px;padding:10px 0}
+.avatar{width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid var(--lamp)}
+.codebox{display:grid;justify-items:end}.codebox b{font:700 clamp(26px,5vw,38px)/1 var(--f-mono);letter-spacing:.18em;color:var(--lamp)}
+.seats4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.seatcard{border:1.5px solid var(--line);border-radius:10px;overflow:hidden;display:grid;justify-items:center;text-align:center;padding-bottom:8px;gap:2px;background:var(--bg)}
+.seatcard img,.seatcard .ph{width:100%;aspect-ratio:22/25;object-fit:cover;display:grid;place-items:center;font-family:var(--f-display);font-size:30px;color:var(--muted);background:#1a120c}
+.seatcard b{font-size:14px;padding-inline:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.seatcard span{font-size:11px;color:var(--muted)}
+.seatcard.me{border-color:var(--lamp)}
+.seatcard.empty{opacity:.5;border-style:dashed}
+.portrait:disabled{cursor:not-allowed}
+@media (max-width:620px){ .seats4{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .redflash{position:fixed;inset:0;background:var(--blood);opacity:0;pointer-events:none;z-index:9}
 .redflash.on{animation:rf 1.2s ease-out}
 @keyframes rf{0%{opacity:.75}100%{opacity:0}}
@@ -156,26 +179,25 @@ details summary{cursor:pointer;font-weight:700}
 <div id="ov"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <script src="engine.js"></script>
 <script src="game.js"></script>
 <script src="scene.js"></script>
 <script src="audio.js"></script>
+<script src="net.js"></script>
 <script>
 (() => {
-const E = window.PokerEngine, CH = PokerScene.CHARACTERS;
+const E = window.PokerEngine, CH = PokerScene.CHARACTERS, NET = window.PokerNet;
 const $hud = document.getElementById('hud'), $ov = document.getElementById('ov');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-// Bot personalities per character (DESIGN.md §3.2)
-const STYLE = {fox: {bluff: 0.16}, pig: {nerve: 0.12}, bear: {aggr: 0.7, bluff: 0.03}, bull: {aggr: 1.4}};
+const STREET_NAME = PokerGame.STREET_NAME;
 
-let setup = [
-  {on:true, name:'You',     kind:'human', animal:'bull'},
-  {on:true, name:'Rusty',   kind:'bot',   animal:'fox'},
-  {on:true, name:'Bruno',   kind:'bot',   animal:'bear'},
-  {on:true, name:'Truffle', kind:'bot',   animal:'pig'},
-];
-try { const s = JSON.parse(localStorage.getItem('bp-setup')); if (Array.isArray(s) && s.length === 4 && s.every(x => CH[x.animal])) setup = s; } catch {}
-const saveSetup = () => { try { localStorage.setItem('bp-setup', JSON.stringify(setup)); } catch {} };
+/* ---------- profile ---------- */
+let profile = {name: '', animal: 'bull'};
+try { const p = JSON.parse(localStorage.getItem('bp-profile')); if (p && CH[p.animal]) profile = p; } catch {}
+const saveProfile = () => { try { localStorage.setItem('bp-profile', JSON.stringify(profile)); } catch {} };
+let roomPrefs = {name: '', isPublic: true};
 
 let scene3d = null;
 try { scene3d = PokerScene.createScene(document.getElementById('view'), document.getElementById('labels')); } catch (e) { console.error(e); }
@@ -183,84 +205,202 @@ let portraits = {};
 try { portraits = PokerScene.renderPortraits(); } catch (e) { console.error(e); }
 const audio = PokerAudio.createAudio();
 
-let game = null, viewer = null, multiHuman = false, sw = null, logOpen = false, boardOpen = false;
+/* ---------- session ----------
+   mode 'host': this browser runs PokerGame and relays to guests.
+   mode 'guest': this browser renders the state the host sends. */
+let session = null;        // {mode, net, game?, S?, seat, room, gameId}
+let lobbyStop = null, lobbyRooms = [], lobbyStatus = 'connecting', joinCode = '', notice = '';
+let viewer = null, sw = null, logOpen = false, boardOpen = false;
 
 const card2d = (c, cls = '', attrs = '') => {
-  if (!c) return `<div class="card2d empty ${cls}"></div>`;
+  if (!c || c.hidden) return `<div class="card2d empty ${cls}"></div>`;
   const red = c.s === 1 || c.s === 2;
   return `<div class="card2d ${red ? 'red' : ''} ${cls}" ${attrs} aria-label="${E.rankLabel(c.r)}${E.SUITS[c.s]}"><span class="r">${E.rankLabel(c.r)}</span><span class="s">${E.SUITS[c.s]}</span></div>`;
 };
 const bulletsHTML = n => `<span class="bullets" aria-label="${n} of 6 bullets">${'●'.repeat(n)}<span class="emp">${'○'.repeat(Math.max(0, 6 - n))}</span></span>`;
+const portraitBtn = (k, {sel, taken, data = ''} = {}) => {
+  const c = CH[k];
+  return `<button class="portrait ${sel ? 'sel' : ''} ${taken ? 'taken' : ''}" ${data} ${taken ? 'disabled' : ''} role="radio" aria-checked="${!!sel}">
+    ${portraits[k] ? `<img src="${portraits[k]}" alt="${c.animal}">` : `<div class="ph">${c.animal[0]}</div>`}
+    <div class="cap"><b>${c.name}</b><span>${taken ? 'Taken' : c.animal + '. ' + c.blurb}</span></div></button>`;
+};
+const onClick = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = () => { audio.unlock(); audio.play('ui'); fn(); }; };
+const inviteLink = code => location.origin + location.pathname + '#' + code;
 
-/* ---------- character select ---------- */
-function renderSetup(){
+/* ---------- screen 1: profile (name + character) ---------- */
+function renderProfile(){
   $hud.innerHTML = '';
-  const on = setup.filter(s => s.on).length;
   $ov.innerHTML = `<div class="overlay dim"><div class="panel">
     <div><h1>Bullet Poker</h1><p class="sub">Texas Hold'em where you bet bullets. Six chambers. Last one standing wins.</p></div>
     ${scene3d ? '' : '<p class="sub" style="color:var(--blood)">This browser could not start WebGL, so the 3D table cannot be drawn.</p>'}
-    ${setup.map((s, i) => `
-      <section class="seat ${s.on ? '' : 'off'}" aria-label="Seat ${i+1}">
-        <div class="seat-head">
-          <input type="checkbox" id="on${i}" data-i="${i}" ${s.on ? 'checked' : ''} ${i < 2 ? 'disabled' : ''} aria-label="Seat ${i+1} plays">
-          <input type="text" id="nm${i}" data-i="${i}" value="${esc(s.name)}" maxlength="14" aria-label="Seat ${i+1} name">
-          <select id="kd${i}" data-i="${i}" aria-label="Human or bot">
-            <option value="human" ${s.kind === 'human' ? 'selected' : ''}>Human</option>
-            <option value="bot" ${s.kind === 'bot' ? 'selected' : ''}>Bot</option>
-          </select>
-        </div>
-        <div class="portraits" role="radiogroup" aria-label="Character for seat ${i+1}">
-          ${Object.entries(CH).map(([k, c]) => {
-            const takenBy = setup.findIndex((o, j) => j !== i && o.on && o.animal === k);
-            return `<button class="portrait ${s.animal === k ? 'sel' : ''} ${takenBy >= 0 ? 'taken' : ''}" data-i="${i}" data-a="${k}" role="radio" aria-checked="${s.animal === k}">
-              ${portraits[k] ? `<img src="${portraits[k]}" alt="${c.animal}">` : `<div class="ph">${c.animal[0]}</div>`}
-              <div class="cap"><b>${c.name}</b><span>${c.animal}. ${c.blurb}</span></div></button>`;
-          }).join('')}
-        </div>
-      </section>`).join('')}
-    <div class="row" style="justify-content:flex-start"><button class="btn" id="start">Take a seat (${on} players)</button>
-      <span class="sub" style="font-size:13px">Two humans? Set both seats to Human and pass the device on each turn.</span></div>
-    <details><summary>How to play</summary>
-    <ol class="rules">
-      <li>Every hand, each player starts with <b>1 bullet</b> loaded. Two hole cards, five community cards, four betting rounds.</li>
-      <li><b>Call</b> matches the highest load. <b>Raise</b> adds 1 bullet. <b>All-in</b> goes straight to 6.</li>
-      <li><b>Fold</b> and you pull the trigger right away with what you loaded. Lose the showdown and you pull it too. The winner is safe.</li>
-      <li>With k bullets the chance of death is k/6. Load all 6 and there is still a <b>5% God Save</b>: the hammer falls on nothing and you live.</li>
-      <li><b>Coward's Fold</b> (once per match): fold and take only 1 bullet.</li>
-      <li><b>Switch</b> (once per match): swap a hole card for one of 4 / 3 / 2 offered cards (pre-flop / flop / turn). No All-in on that turn.</li>
-      <li>Keys: <b>F</b> fold, <b>C</b> check/call, <b>R</b> raise, <b>A</b> all-in, <b>S</b> switch, <b>B</b> board view, <b>M</b> change music.</li>
-    </ol></details>
+    <label class="field"><span class="label">Your name</span><input type="text" id="pName" maxlength="14" placeholder="e.g. Nam" value="${esc(profile.name)}" autocomplete="nickname"></label>
+    <div><span class="label">Your character</span>
+      <div class="portraits" role="radiogroup" aria-label="Character">${Object.keys(CH).map(k => portraitBtn(k, {sel: profile.animal === k, data: `data-a="${k}"`})).join('')}</div></div>
+    <div class="row" style="justify-content:flex-start"><button class="btn" id="toLobby">Enter the bar</button>${notice ? `<span class="sub" style="color:var(--blood)">${esc(notice)}</span>` : ''}</div>
+    <details><summary>How to play</summary>${RULES}</details>
   </div></div>`;
-  $ov.querySelectorAll('input[type=checkbox]').forEach(el => el.onchange = () => { setup[el.dataset.i].on = el.checked; saveSetup(); renderSetup(); });
-  $ov.querySelectorAll('input[type=text]').forEach(el => el.oninput = () => { setup[el.dataset.i].name = el.value; saveSetup(); });
-  $ov.querySelectorAll('select').forEach(el => el.onchange = () => { setup[el.dataset.i].kind = el.value; saveSetup(); });
-  $ov.querySelectorAll('.portrait').forEach(el => el.onclick = () => {
-    const i = +el.dataset.i, a = el.dataset.a;
-    const j = setup.findIndex((o, k) => k !== i && o.on && o.animal === a);
-    if (j >= 0) setup[j].animal = setup[i].animal; // swap so each seat stays unique
-    const oldName = CH[setup[i].animal].name;
-    if (setup[i].kind === 'bot' && setup[i].name === oldName) setup[i].name = CH[a].name;
-    setup[i].animal = a;
-    audio.unlock(); audio.play('ui');
-    saveSetup(); renderSetup();
+  const nameEl = document.getElementById('pName');
+  nameEl.oninput = () => { profile.name = nameEl.value; saveProfile(); };
+  $ov.querySelectorAll('.portrait').forEach(el => el.onclick = () => { profile.animal = el.dataset.a; saveProfile(); audio.unlock(); audio.play('ui'); renderProfile(); });
+  onClick('toLobby', () => {
+    if (!profile.name.trim()) { notice = 'Pick a name first.'; nameEl.focus(); return renderProfile(); }
+    notice = ''; showLobby();
   });
-  document.getElementById('start').onclick = startGame;
+}
+const RULES = `<ol class="rules">
+  <li>2–4 players, each on their own device. One player hosts a table; the others join it.</li>
+  <li>Every hand, each player starts with <b>1 bullet</b> loaded. Two hole cards, five community cards, four betting rounds.</li>
+  <li><b>Call</b> matches the highest load. <b>Raise</b> adds 1 bullet. <b>All-in</b> goes straight to 6.</li>
+  <li><b>Fold</b> and you pull the trigger right away with what you loaded. Lose the showdown and you pull it too. The winner is safe.</li>
+  <li>With k bullets the chance of death is k/6. Load all 6 and there is still a <b>5% God Save</b>.</li>
+  <li><b>Coward's Fold</b> (once per match): fold and take only 1 bullet.</li>
+  <li><b>Switch</b> (once per match): swap a hole card for one of 4 / 3 / 2 offered cards (pre-flop / flop / turn). No All-in on that turn.</li>
+  <li>Keys: <b>F</b> fold, <b>C</b> check/call, <b>R</b> raise, <b>A</b> all-in, <b>S</b> switch, <b>B</b> board view, <b>M</b> change music.</li>
+</ol>`;
+
+/* ---------- screen 2: lobby (open tables, host, join by code) ---------- */
+function showLobby(){
+  if (!lobbyStop) lobbyStop = NET.watchLobby(list => { lobbyRooms = list; if (!session) renderLobby(); }, st => { lobbyStatus = st; if (!session) renderLobby(); });
+  renderLobby();
+}
+function renderLobby(){
+  $hud.innerHTML = '';
+  const status = lobbyStatus === 'online' ? `${lobbyRooms.length} open table${lobbyRooms.length === 1 ? '' : 's'}` : lobbyStatus === 'unavailable' ? 'Table list unavailable. You can still host or join with a code.' : 'Looking for tables...';
+  $ov.innerHTML = `<div class="overlay dim"><div class="panel">
+    <div class="row" style="justify-content:space-between">
+      <div class="row" style="justify-content:flex-start;gap:12px">${portraits[profile.animal] ? `<img class="avatar" src="${portraits[profile.animal]}" alt="">` : ''}<div><div class="label">Playing as</div><h2>${esc(profile.name)} · ${CH[profile.animal].name}</h2></div></div>
+      <button class="btn ghost small" id="editProfile">Change</button>
+    </div>
+    <section class="box"><h3>Open tables</h3><p class="sub" style="font-size:13px">${status}</p>
+      <div class="rooms">${lobbyRooms.length ? lobbyRooms.map(r => {
+        const full = r.players >= NET.MAX_SEATS, playing = r.status === 'playing';
+        return `<div class="roomrow"><div class="rinfo"><b>${esc(r.name)}</b><span>Host: ${esc(r.host)}</span></div>
+          <span class="pill ${playing ? 'busy' : ''}">${playing ? 'In game' : `${r.players}/${NET.MAX_SEATS}`}</span>
+          <button class="btn small" data-join="${esc(r.code)}" ${full || playing ? 'disabled' : ''}>Join</button></div>`;
+      }).join('') : '<div class="empty">No public tables right now. Host one!</div>'}</div>
+    </section>
+    <div class="cols">
+      <section class="box"><h3>Host a table</h3>
+        <label class="field"><span class="label">Table name</span><input type="text" id="rName" maxlength="24" placeholder="${esc(profile.name)}'s table" value="${esc(roomPrefs.name)}"></label>
+        <label class="check"><input type="checkbox" id="rPublic" ${roomPrefs.isPublic ? 'checked' : ''}> Show in the open tables list</label>
+        <button class="btn" id="host">Host</button></section>
+      <section class="box"><h3>Join with a code</h3>
+        <label class="field"><span class="label">Table code</span><input type="text" id="jCode" maxlength="8" placeholder="e.g. K7Q2M" value="${esc(joinCode)}" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:.2em"></label>
+        <button class="btn" id="join">Join</button></section>
+    </div>
+    ${notice ? `<p class="sub" style="color:var(--blood)">${esc(notice)}</p>` : ''}
+  </div></div>`;
+  document.getElementById('rName').oninput = e => roomPrefs.name = e.target.value;
+  document.getElementById('rPublic').onchange = e => roomPrefs.isPublic = e.target.checked;
+  document.getElementById('jCode').oninput = e => joinCode = NET.cleanCode(e.target.value);
+  onClick('editProfile', () => { notice = ''; renderProfile(); });
+  onClick('host', hostTable);
+  onClick('join', () => joinCode && joinTable(joinCode));
+  $ov.querySelectorAll('[data-join]').forEach(el => el.onclick = () => { audio.unlock(); joinTable(el.dataset.join); });
 }
 
-function startGame(){
-  audio.unlock(); audio.play('ui');
-  if (game) game.stop();
-  const seats = setup.filter(s => s.on).map((s, i) => ({name: s.name.trim() || `Seat ${i+1}`, kind: s.kind, animal: s.animal, style: STYLE[s.animal]}));
-  const humans = seats.map((s, i) => s.kind === 'human' ? i : -1).filter(i => i >= 0);
-  multiHuman = humans.length > 1;
-  viewer = humans.length ? humans[0] : null;
-  sw = null; boardOpen = false;
+/* ---------- host / join ---------- */
+function hostTable(){
+  notice = '';
+  try {
+    const net = NET.hostRoom({me: profile, roomName: roomPrefs.name, isPublic: roomPrefs.isPublic,
+      onRoom: room => { if (session && session.net === net) { session.room = room; if (!session.game) renderRoom(); } },
+      onError: msg => { notice = msg; leaveSession(); }});
+    session = {mode: 'host', net, room: net.room, seat: 0};
+    renderRoom();
+  } catch (e) { notice = e.message; renderLobby(); }
+}
+function joinTable(code){
+  notice = '';
+  let net;
+  try {
+    net = NET.joinRoom({code, me: profile,
+      onRoom: (room, key) => { if (!session) return; session.room = room; session.key = key; if (!session.inGame) renderRoom(); },
+      onState: (S, seat) => onGuestState(S, seat),
+      onEvent: (t, d) => session && session.S && onEvent(t, d, session.S),
+      onLobby: () => { if (session) { session.inGame = false; session.S = null; resetTable(); renderRoom(); } },
+      onClose: reason => { notice = reason; leaveSession(); }});
+  } catch (e) { notice = e.message; return renderLobby(); }
+  session = {mode: 'guest', net, room: null, seat: null, code: NET.cleanCode(code)};
+  renderRoom();
+}
+function leaveSession(){
+  if (session) {
+    if (session.game) session.game.stop();
+    if (session.mode === 'host') session.net.close(); else session.net.leave();
+  }
+  session = null; viewer = null; sw = null;
+  resetTable();
+  if (location.hash) history.replaceState(null, '', location.pathname);
+  showLobby();
+}
+function resetTable(){ audio.tension(false); boardOpen = false; if (scene3d) { scene3d.setBoardView(false); scene3d.setup([]); } $hud.innerHTML = ''; }
+
+/* ---------- screen 3: the room (waiting to start) ---------- */
+function renderRoom(){
+  $hud.innerHTML = '';
+  const r = session.room, isHost = session.mode === 'host';
+  if (!r) {
+    $ov.innerHTML = `<div class="overlay dim"><div class="panel" style="width:min(460px,100%)"><div class="label">Joining ${esc(session.code)}</div><h2>Knocking on the door...</h2>
+      <p class="sub">Connecting to the host's browser. This can take a few seconds.</p><button class="btn ghost" id="leave">Cancel</button></div></div>`;
+    return onClick('leave', leaveSession);
+  }
+  const myKey = isHost ? 'host' : session.key;
+  const me = r.seats.find(s => s.key === myKey);
+  const taken = new Set(r.seats.filter(s => s.key !== myKey).map(s => s.animal));
+  const canStart = r.seats.length >= 2;
+  $ov.innerHTML = `<div class="overlay dim"><div class="panel">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><div class="label">${r.isPublic === false ? 'Private table' : 'Public table'}</div><h1 style="font-size:clamp(26px,5vw,40px)">${esc(r.name)}</h1></div>
+      <div class="codebox"><span class="label">Table code</span><b>${esc(r.code)}</b></div>
+    </div>
+    <div class="row" style="justify-content:flex-start"><input type="text" id="invite" readonly value="${esc(inviteLink(r.code))}" class="invite" aria-label="Invite link"><button class="btn ghost small" id="copy">Copy invite link</button></div>
+    <div class="seats4">${Array.from({length: NET.MAX_SEATS}, (_, i) => {
+      const s = r.seats[i];
+      if (!s) return `<div class="seatcard empty"><div class="ph">?</div><span>Empty seat</span></div>`;
+      return `<div class="seatcard ${s.key === myKey ? 'me' : ''}">${portraits[s.animal] ? `<img src="${portraits[s.animal]}" alt="${CH[s.animal].animal}">` : ''}
+        <b>${esc(s.name)}</b><span>${CH[s.animal].name}${s.host ? ' · Host' : ''}${s.key === myKey ? ' · You' : ''}</span></div>`;
+    }).join('')}</div>
+    ${me ? `<details><summary>Change character</summary><div class="portraits" style="margin-top:10px">${Object.keys(CH).map(k => portraitBtn(k, {sel: me.animal === k, taken: taken.has(k), data: `data-pick="${k}"`})).join('')}</div></details>` : ''}
+    <div class="row" style="justify-content:flex-start">
+      ${isHost ? `<button class="btn" id="start" ${canStart ? '' : 'disabled'}>Start game (${r.seats.length} player${r.seats.length === 1 ? '' : 's'})</button>` : ''}
+      <button class="btn ghost" id="leave">${isHost ? 'Close table' : 'Leave'}</button>
+      <span class="sub" style="font-size:13px">${isHost ? (canStart ? 'Everyone in? Start when ready.' : 'Waiting for at least one more player. Share the code or the link.') : 'Waiting for the host to start...'}</span>
+    </div>
+  </div></div>`;
+  onClick('copy', () => { const el = document.getElementById('invite'); navigator.clipboard?.writeText(el.value).then(() => { document.getElementById('copy').textContent = 'Copied'; }, () => el.select()); });
+  onClick('leave', leaveSession);
+  onClick('start', startHostedGame);
+  $ov.querySelectorAll('[data-pick]').forEach(el => el.onclick = () => {
+    const a = el.dataset.pick; profile.animal = a; saveProfile(); audio.play('ui');
+    if (isHost) session.net.pickAnimal(a); else session.net.pickAnimal(a);
+  });
+}
+
+/* ---------- running a game ---------- */
+function startHostedGame(){
+  const net = session.net;
+  const seats = net.seatsForGame();
+  const game = PokerGame.createGame(seats, S => { net.pushState(S); render(); }, {onEvent: (t, d, S) => { net.pushEvent(t, d); onEvent(t, d, S); }});
+  session.game = game; session.inGame = true; viewer = 0; sw = null;
+  net.attach(game);
   $ov.innerHTML = '';
-  game = PokerGame.createGame(seats, render, {onEvent});
   if (scene3d) scene3d.setup(game.state.players);
   game.start();
 }
-function leave(){ if (game) game.stop(); game = null; audio.tension(false); if (scene3d) scene3d.setBoardView(false); renderSetup(); }
+function onGuestState(S, seat){
+  if (!session) return;
+  const fresh = session.gameId !== S.gameId;
+  session.S = S; session.seat = seat; session.inGame = true; viewer = seat;
+  if (fresh) { session.gameId = S.gameId; sw = null; boardOpen = false; $ov.innerHTML = ''; if (scene3d) { scene3d.setBoardView(false); scene3d.setup(S.players); } }
+  render();
+}
+const curState = () => session && (session.mode === 'host' ? session.game && session.game.state : session.S);
+const ctl = {
+  act(a) { if (session.mode === 'host') session.game.act(a); else session.net.send({t: 'act', a}); },
+  switchOpen() { if (session.mode === 'host') session.game.switchOpen(viewer); else session.net.send({t: 'swOpen'}); },
+  switchPick(h, o) { if (session.mode === 'host') session.game.switchPick(viewer, h, o); else session.net.send({t: 'swPick', h, o}); },
+};
 
 /* ---------- game events → sound + faces ---------- */
 function onEvent(type, d, S){
@@ -280,7 +420,7 @@ function onEvent(type, d, S){
     case 'godsave': audio.play('godSave'); audio.tension(false); flashGold(); break;
     case 'bang': audio.play('bang'); audio.tension(false); if (d.pid === viewer) setTimeout(() => audio.play('lose'), 600); flashRed(); break;
     case 'win': case 'showdown': audio.play('win'); if (scene3d) d.ids.forEach(id => scene3d.react(id, 'happy')); break;
-    case 'yourTurn': if (S.players[d.pid].kind === 'human') audio.play('yourTurn'); break;
+    case 'yourTurn': if (d.pid === viewer) audio.play('yourTurn'); break;
     case 'gameOver': audio.play(d.winner === viewer ? 'win' : 'lose'); break;
   }
 }
@@ -327,9 +467,9 @@ function musicIntensity(S){
 
 /* ---------- HUD ---------- */
 function render(){
-  if (!game) return;
-  const S = game.state;
-  const needCover = multiHuman && S.awaiting != null && S.awaiting !== viewer && !S.over;
+  const S = curState();
+  if (!S || !session.inGame) return;
+  const needCover = false;
   if (scene3d) scene3d.update(S, viewer, needCover);
   const me = viewer != null ? S.players[viewer] : null;
   const myTurn = S.awaiting != null && S.awaiting === viewer && !S.gun && !needCover;
@@ -344,14 +484,14 @@ function render(){
   const results = S.showdown && S.winners && !S.gun ? resultsHTML(S) : '';
   audio.setIntensity(musicIntensity(S));
 
-  const board = boardOpen ? `<div class="chip boardstrip"><div class="label">Community cards · ${game.STREET_NAME[S.street] || ''}</div><div class="row">${Array.from({length:5}, (_, i) => card2d(S.board[i], 'mini')).join('')}</div></div>` : '';
+  const board = boardOpen ? `<div class="chip boardstrip"><div class="label">Community cards · ${STREET_NAME[S.street] || ''}</div><div class="row">${Array.from({length:5}, (_, i) => card2d(S.board[i], 'mini')).join('')}</div></div>` : '';
 
   let controls = '';
   if (me && !S.over) {
     const best = me.hole.length === 2 && !needCover ? (S.board.length >= 3 ? E.bestHand(me.hole.concat(S.board)).name : (me.hole[0].r === me.hole[1].r ? 'Pocket pair' : '')) : '';
     let buttons = '';
     if (myTurn && !sw) {
-      const o = game.options(viewer);
+      const o = PokerGame.optionsFor(S, me);
       buttons = `<div class="row">
         <button class="btn fold" id="aFold">Fold · take ${o.bet}<kbd>F</kbd></button>
         ${o.canCoward ? `<button class="btn ghost" id="aCoward">Coward's Fold · take 1</button>` : ''}
@@ -362,9 +502,10 @@ function render(){
       </div>
       <div class="risk">Fold now: <b>${Math.round(o.bet / 6 * 100)}%</b> death · Call and lose: <b>${o.currentBet >= 6 ? 95 : Math.round(o.currentBet / 6 * 100)}%</b> death</div>`;
     } else if (myTurn && sw) {
-      buttons = `<div class="chip" style="display:grid;gap:10px;justify-items:center">
+      const offer = S.switchOffer && S.switchOffer.pid === viewer ? S.switchOffer.cards : null;
+      buttons = !offer ? `<div class="risk">Shuffling the offer...</div>` : `<div class="chip" style="display:grid;gap:10px;justify-items:center">
         <div class="label">Switch: pick a new card, then the hole card to give up</div>
-        <div class="row">${sw.cards.map((c, k) => card2d(c, 'pick ' + (sw.pick === k ? 'sel' : ''), `data-offer="${k}" role="button" tabindex="0"`)).join('')}</div>
+        <div class="row">${offer.map((c, k) => card2d(c, 'pick ' + (sw.pick === k ? 'sel' : ''), `data-offer="${k}" role="button" tabindex="0"`)).join('')}</div>
         <div class="label">Your hole cards</div>
         <div class="row">${me.hole.map((c, k) => card2d(c, 'pick', `data-hole="${k}" role="button" tabindex="0"`)).join('')}</div>
         <button class="btn ghost small" id="swCancel">Keep my cards</button></div>`;
@@ -380,7 +521,7 @@ function render(){
 
   $hud.innerHTML = `
   <div class="hud top">
-    <div class="chip"><div class="brand">Bullet Poker</div><div class="label">Hand ${S.handNo} · ${game.STREET_NAME[S.street] || ''} · to call ${S.currentBet}</div></div>
+    <div class="chip"><div class="brand">Bullet Poker</div><div class="label">Hand ${S.handNo} · ${STREET_NAME[S.street] || ''} · to call ${S.currentBet}</div></div>
     <div class="row">
       <button class="btn ghost small ${audio.music ? 'on' : ''}" id="tMusic" title="Switch track">♪ ${audio.musicLabel}</button>
       <button class="btn ghost small ${audio.sfx ? 'on' : ''}" id="tSfx" aria-pressed="${audio.sfx}">Sound</button>
@@ -395,26 +536,25 @@ function render(){
   <div class="hud bottom"><div class="controls">${board}${controls ? controls.replace(/^<div class="controls">|<\/div>$/g, '') : ''}</div></div>`;
 
   if (S.over) {
+    const host = session.mode === 'host';
     $ov.innerHTML = `<div class="overlay dim"><div class="panel" style="text-align:center;justify-items:center;width:min(460px,100%)">
       <div class="label">Last one standing · after ${S.handNo} hands</div>
-      <h1>${S.winner != null ? esc(S.players[S.winner].name) : 'Nobody'}</h1>
-      <div class="row"><button class="btn" id="again">Play again</button><button class="btn ghost" id="toSetup">Change players</button></div></div></div>`;
-  } else if (needCover) {
-    $ov.innerHTML = `<div class="overlay solid"><div class="panel" style="text-align:center;justify-items:center;width:min(460px,100%)">
-      <div class="label">Pass the device</div><h2>${esc(S.players[S.awaiting].name)}, you're up</h2><p class="sub">Everyone else, look away.</p>
-      <button class="btn" id="reveal">I'm ${esc(S.players[S.awaiting].name)}, take my seat</button></div></div>`;
+      <h1>${S.winner != null ? esc(S.players[S.winner].name.replace(' (left)', '')) : 'Nobody'}</h1>
+      ${host ? `<div class="row"><button class="btn" id="again">Play again</button><button class="btn ghost" id="toRoom">Back to the room</button></div>`
+             : `<p class="sub">Waiting for the host to start another round...</p><button class="btn ghost" id="quit2">Leave</button>`}</div></div>`;
   } else $ov.innerHTML = '';
 
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = () => { audio.play('ui'); fn(); }; };
-  on('aFold', () => game.act({type:'fold'}));
-  on('aCoward', () => game.act({type:'coward'}));
-  on('aCall', () => game.act({type:'call'}));
-  on('aRaise', () => game.act({type:'raise'}));
-  on('aAll', () => game.act({type:'allin'}));
+  on('aFold', () => ctl.act({type:'fold'}));
+  on('aCoward', () => ctl.act({type:'coward'}));
+  on('aCall', () => ctl.act({type:'call'}));
+  on('aRaise', () => ctl.act({type:'raise'}));
+  on('aAll', () => ctl.act({type:'allin'}));
   on('aSwitch', openSwitch);
-  on('swCancel', () => { game.switchPick(viewer, null, null); sw = null; render(); });
-  on('reveal', () => { viewer = S.awaiting; render(); });
-  on('again', startGame); on('toSetup', leave); on('quit', leave);
+  on('swCancel', () => { ctl.switchPick(null, null); sw = null; render(); });
+  on('again', () => { session.game.stop(); startHostedGame(); });
+  on('toRoom', () => { session.game.stop(); session.game = null; session.inGame = false; resetTable(); session.net.backToRoom(); renderRoom(); });
+  on('quit', leaveSession); on('quit2', leaveSession);
   on('tLog', () => { logOpen = !logOpen; render(); });
   on('tBoard', toggleBoard);
   on('tMusic', () => { audio.unlock(); audio.cycleMusic(); render(); });
@@ -422,28 +562,32 @@ function render(){
   $hud.querySelectorAll('[data-offer]').forEach(el => el.onclick = () => { sw.pick = +el.dataset.offer; audio.play('ui'); render(); });
   $hud.querySelectorAll('[data-hole]').forEach(el => el.onclick = () => {
     if (sw.pick == null) return;
-    game.switchPick(viewer, +el.dataset.hole, sw.pick); sw = null; render();
+    ctl.switchPick(+el.dataset.hole, sw.pick); sw = null; render();
   });
 }
-function openSwitch(){ const cards = game.switchOpen(viewer); if (cards) { sw = {cards, pick: null}; render(); } }
+function openSwitch(){ sw = {pick: null}; ctl.switchOpen(); render(); }
 function toggleBoard(){ boardOpen = !boardOpen; if (scene3d) scene3d.setBoardView(boardOpen); render(); }
 
 /* ---------- keyboard ---------- */
 document.addEventListener('keydown', e => {
   const tg = e.target;
-  if (!game || (tg && tg.matches && tg.matches('input,select,textarea')) || e.metaKey || e.ctrlKey) return;
+  const S = curState();
+  if (!S || !session.inGame || (tg && tg.matches && tg.matches('input,select,textarea')) || e.metaKey || e.ctrlKey) return;
   const k = e.key.toLowerCase();
   if (k === 'b') return toggleBoard();
   if (k === 'm') { audio.unlock(); audio.cycleMusic(); return render(); }
-  const S = game.state;
   if (!(S.awaiting === viewer && !S.gun && !sw)) return;
-  const o = game.options(viewer);
+  const o = PokerGame.optionsFor(S, S.players[viewer]);
   const map = {f: {type:'fold'}, c: {type:'call'}, r: o.canRaise && {type:'raise'}, a: o.canAllIn && {type:'allin'}};
   if (k === 's' && o.canSwitch) return openSwitch();
-  if (map[k]) { audio.play('ui'); game.act(map[k]); }
+  if (map[k]) { audio.play('ui'); ctl.act(map[k]); }
 });
+window.addEventListener('beforeunload', () => { if (session && session.mode === 'host') session.net.close(); });
 
-window.__bp = {get game() { return game; }}; // debug hook for automated screenshots
-renderSetup();
+window.__bp = {get session() { return session; }}; // debug hook for automated tests
+const hashCode = NET.cleanCode(location.hash.slice(1));
+if (hashCode) joinCode = hashCode;
+if (profile.name.trim()) { if (hashCode) { showLobby(); joinTable(hashCode); } else showLobby(); }
+else { if (hashCode) notice = `Pick a name and character to join table ${hashCode}.`; renderProfile(); }
 })();
 </script>

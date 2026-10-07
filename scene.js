@@ -249,8 +249,9 @@ function createScene(canvas, labelLayer) {
     return m;
   }
   function setFace(m, c) {
-    if (m.userData.cardId === c.id) return;
-    m.userData.cardId = c.id; m.userData.face.map = m.userData.face.emissiveMap = cardTex(c); m.userData.face.needsUpdate = true;
+    const id = c.hidden ? 'back' : c.id;
+    if (m.userData.cardId === id) return;
+    m.userData.cardId = id; m.userData.face.map = m.userData.face.emissiveMap = cardTex(c.hidden ? null : c); m.userData.face.needsUpdate = true;
   }
 
   // gun & bullets
@@ -375,7 +376,8 @@ function createScene(canvas, labelLayer) {
           quat = flatQ(yaw + Math.PI, reveal);
         }
         if (p.folded) { pos = out.clone().multiplyScalar(CARD_R - 0.25).add(side.clone().multiplyScalar((k - 0.5) * 0.2)).setY(TOP + 0.004 + k * 0.004); quat = flatQ(yaw + 0.4, false); }
-        setFace(want('h' + c.id, makeCard, pos, quat, {from: DECK_POS}), c);
+        // keyed by hand + seat + slot so hidden cards (online) keep their mesh when revealed
+        setFace(want(`h${S.handNo}-${i}-${k}`, makeCard, pos, quat, {from: DECK_POS}), c);
       });
 
       const inGun = S.gun && S.gun.pid === i ? (S.gun.state === 'load' ? S.gun.loaded : S.gun.bullets) : 0;

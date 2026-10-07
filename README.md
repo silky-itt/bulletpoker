@@ -4,7 +4,7 @@ Texas Hold'em where you bet **bullets**, not chips. A 3D bluffing game that runs
 
 **Play:** https://silky-itt.github.io/bulletpoker/
 
-- 2–4 seats, any mix of humans (hot-seat on one device) and bots
+- 2–4 players online, each on their own device: host a table, share the code or link, or pick one from the open tables list
 - Six-chamber revolver: fold or lose the showdown and you pull the trigger with the bullets you loaded
 - Switch and Coward's Fold, once per match
 - Low-poly animal characters with expressive faces
@@ -26,6 +26,7 @@ python3 -m http.server 8000
 | `game.js` | Rules and turn flow (no DOM) |
 | `scene.js` | Three.js scene, characters, camera |
 | `audio.js` | Web Audio music and SFX |
+| `net.js` | Online tables: MQTT lobby + PeerJS game traffic |
 | `DESIGN.md` | Design bible: visuals, UX, audio, rules |
 
-Three.js r128 is loaded from cdnjs.
+Three.js r128 (cdnjs), PeerJS 1.5.4 (jsDelivr) and MQTT.js 5.10.1 (unpkg) are loaded from CDNs.

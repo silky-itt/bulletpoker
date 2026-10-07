@@ -9,6 +9,20 @@ const SWITCH_OFFERS = {preflop: 4, flop: 3, turn: 2};
 const STREET_NAME = {preflop: 'Pre-flop', flop: 'Flop', turn: 'Turn', river: 'River', showdown: 'Showdown'};
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Legal options for player p. Pure, so online clients can compute it from a received state.
+function optionsFor(S, p) {
+  const toCall = S.currentBet - p.bet;
+  return {
+    toCall, canCheck: toCall === 0,
+    canRaise: S.currentBet < CHAMBERS,
+    canAllIn: S.currentBet < CHAMBERS && !p.switchedNow,
+    canCoward: !p.cowardUsed && p.bet > 1,
+    canSwitch: !p.switchUsed && !!SWITCH_OFFERS[S.street],
+    switchCount: SWITCH_OFFERS[S.street] || 0,
+    bet: p.bet, currentBet: S.currentBet,
+  };
+}
+
 function createGame(seats, onChange, opts = {}) {
   const speed = opts.speed ?? 1;
   const onEvent = opts.onEvent || (() => {});
@@ -23,7 +37,7 @@ function createGame(seats, onChange, opts = {}) {
     })),
     dealer: -1, handNo: 0, board: [], street: 'preflop', currentBet: 1,
     toAct: null, awaiting: null, showdown: false, winners: null, gun: null, winner: null,
-    switchOffer: null, log: [],
+    switchOffer: null, log: [], gameId: Math.random().toString(36).slice(2, 10),
   };
   const emit = () => onChange && onChange(S);
   const fx = (type, data = {}) => { try { onEvent(type, data, S); } catch (e) { console.error(e); } };
@@ -32,18 +46,7 @@ function createGame(seats, onChange, opts = {}) {
   const inPlay = () => S.players.filter(p => p.inHand && !p.folded && p.alive);
   const nextFrom = (i, pred) => { const n = S.players.length; for (let k = 1; k <= n; k++) { const j = (i + k) % n; if (pred(S.players[j])) return j; } return -1; };
 
-  function options(p) {
-    const toCall = S.currentBet - p.bet;
-    return {
-      toCall, canCheck: toCall === 0,
-      canRaise: S.currentBet < CHAMBERS,
-      canAllIn: S.currentBet < CHAMBERS && !p.switchedNow,
-      canCoward: !p.cowardUsed && p.bet > 1,
-      canSwitch: !p.switchUsed && !!SWITCH_OFFERS[S.street],
-      switchCount: SWITCH_OFFERS[S.street] || 0,
-      bet: p.bet, currentBet: S.currentBet,
-    };
-  }
+  const options = p => optionsFor(S, p);
 
   // Pull the trigger with k bullets in a six-chamber gun.
   async function shoot(p, k, t, reason) {
@@ -75,6 +78,7 @@ function createGame(seats, onChange, opts = {}) {
 
   async function apply(p, a, t) {
     const o = options(p);
+    if (a.type === 'leave') { p.acted = true; return; }
     if (a.type === 'fold' || a.type === 'coward') {
       const coward = a.type === 'coward' && o.canCoward;
       if (coward) p.cowardUsed = true;
@@ -269,10 +273,19 @@ function createGame(seats, onChange, opts = {}) {
     options: id => options(S.players[id]),
     act(a) { if (resolveHuman) resolveHuman(a); },
     switchOpen, switchPick,
+    // A player left the table: they are out (no bullet fired). If it was their turn, the hand moves on.
+    removePlayer(pid) {
+      const p = S.players[pid]; if (!p || !p.alive) return;
+      p.alive = false; p.folded = true; p.lastAction = 'Left'; p.name = p.name.replace(/ \(left\)$/, '') + ' (left)';
+      log(`${p.name.replace(' (left)', '')} left the table.`);
+      if (S.switchOffer && S.switchOffer.pid === pid) switchPick(pid, null, null);
+      if (S.awaiting === pid && resolveHuman) resolveHuman({type: 'leave'});
+      else emit();
+    },
     start() { token++; playHand(); },
     stop() { token++; if (resolveHuman) resolveHuman(null); },
   };
 }
 
-root.PokerGame = {createGame, CHAMBERS};
+root.PokerGame = {createGame, optionsFor, CHAMBERS, STREET_NAME};
 })(typeof window !== 'undefined' ? window : globalThis);

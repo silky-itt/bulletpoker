@@ -20,7 +20,7 @@ A browser-based 3D bluffing game in the spirit of *Liar's Bar* (Curve Animation,
 
 | Item | Rule |
 |---|---|
-| Players | 2–4 seats, each **Human** or **Bot**. Several humans can share one device (hot-seat). |
+| Players | 2–4 humans, **each on their own device**, joined through an online table. No bots. |
 | Ante | Every hand, each player starts with **1 bullet** loaded. |
 | Betting | Texas Hold'em streets: pre-flop, flop, turn, river. **Check**, **Call** (match highest bullets), **Raise** (+1 bullet), **All-in** (straight to 6). |
 | Gun | Six-chamber revolver. With *k* bullets the death chance is *k*/6. A full 6-bullet load has a **5% God Save** chance: the hammer falls on nothing and the player lives (named after the original game's *God Save* mechanic). |
@@ -103,7 +103,7 @@ Low-poly, built from primitives, chunky proportions (big head, small body), seat
 | **Spectator** | Bots only | High three-quarter view of the whole table. |
 | **Shot cam** **[Future]** | A gun event | Brief dolly toward the shooter's face. |
 
-Hot-seat: when the turn passes to another human, a full-screen **"Pass the device"** cover hides everything until that player taps *I'm <name>*.
+
 
 ---
 
@@ -143,10 +143,13 @@ Shown for 4.8 s at showdown, hidden while a gun is in use. Inspired by the *Liar
 - **Winner row:** warm gold gradient band plus a green **SAFE** tag. Losers get a red **PULLS n** tag (n = bullets they will load).
 - Phone: the name moves above the cards; cards shrink.
 
-### 5.4 Character select
-- One row per seat: **On/Off**, **Name**, **Human/Bot**, then a strip of **portrait cards** (head-and-shoulders render of each animal under the bar lamp).
-- Picking a portrait already used by another seat **swaps** the two, so every seat keeps a unique character.
-- The selected portrait gets an amber ring plus the character's name and a one-line personality.
+### 5.4 Flow: profile → lobby → table
+1. **Profile:** your name + a strip of **portrait cards** (head-and-shoulders render of each animal under the bar lamp). Saved in localStorage, so returning players skip straight to the lobby.
+2. **Lobby:** *Open tables* (live list: table name, host, seats used, Join), *Host a table* (name + "Show in the open tables list"), *Join with a code*. Opening an invite link (`…/#CODE`) joins that table directly.
+3. **Table (waiting):** big table code, invite link with **Copy**, 4 seat cards with portraits, *Change character* (taken characters are disabled). Only the host sees **Start game**, enabled from 2 players.
+4. **Game over:** the host chooses *Play again* (same players) or *Back to the room*; guests wait.
+
+Characters are unique per table: if you join with a taken character, the host gives you a free one, and you can change it in the room.
 
 ---
 
@@ -208,16 +211,27 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 - [ ] **[Future]** Shot cam dolly, slow-motion on BANG
 - [ ] **[Future]** Smoke particles in the lamp cone
 - [ ] **[Future]** Character hands that actually hold the gun
-- [ ] **[Future]** Online 2-player over a link (one device each)
+- [x] Online tables: lobby list, host / join by code or invite link (see §9)
+- [ ] **[Future]** Reconnect to a running game after a page refresh
+- [ ] **[Future]** Host migration (game survives the host leaving)
 
 ---
+
+## 9. Online play
+- **Topology:** the host's browser is the server. It runs `PokerGame`; guests send intents and receive a filtered view of the state. Guests can never see another player's hole cards before showdown, because those cards are never sent to them.
+- **Game transport:** PeerJS (WebRTC data channels, DTLS-encrypted), using the free PeerJS cloud broker only for the handshake. Peer id = `bulletpoker-v1-<CODE>`.
+- **Lobby transport:** public MQTT brokers over WebSocket (HiveMQ and EMQX, **connected in parallel**, because each takes 6–7 s to answer and host and viewer must not end up on different brokers). Public tables publish a retained message on `bulletpoker/v1/rooms/<CODE>` every 8 s. An MQTT *last will* plus an explicit clear on close removes the table; listings older than 30 s are dropped.
+- **Messages:** guest → host: `hello`, `pick`, `act`, `swOpen`, `swPick`. Host → guest: `welcome`, `room`, `state` (filtered, with the guest's seat), `ev` (sound/face events), `lobby`, `bye`.
+- **Leaving:** a guest who disconnects mid-game leaves the table (out, no bullet fired). If the host leaves, the table closes for everyone.
+- **Limits:** tables are best-effort (free public infrastructure, no accounts). Some strict networks block WebRTC. Only runs from a normal web host such as GitHub Pages, not inside a claude.ai artifact, which blocks WebRTC and WebSockets.
 
 ## 8. Tech notes
 - `engine.js`: card model, hand evaluator (best 5 of 7), Monte Carlo equity. No DOM.
 - `game.js`: rules and turn flow; emits `onChange(state)` and `onEvent(type, data)`. No DOM.
 - `scene.js`: Three.js scene, characters, faces, camera modes, portrait renderer. Reads state only.
 - `audio.js`: Web Audio synth for music and SFX.
-- `index.html`: HUD, character select, input, and the wiring between the files above.
+- `net.js`: lobby (MQTT) and table networking (PeerJS), state filtering per seat.
+- `index.html`: profile, lobby, room, HUD, input, and the wiring between the files above.
 - Three.js **r128 UMD** from cdnjs (the last line with a `three.min.js` global build there).
 
 ---
