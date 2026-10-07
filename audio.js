@@ -80,7 +80,16 @@ function createAudio() {
       tone(t, 90, 0.5, {to: 35, gain: 0.9, attack: 0.001});
       noise(t, 0.05, {type: 'highpass', freq: 2000, gain: 0.8, attack: 0.001});
     },
-    jam() { const t = now(); noise(t, 0.04, {type: 'lowpass', freq: 700, gain: 0.6}); tone(t + 0.05, 2600, 0.15, {gain: 0.08}); },
+    // God Save: dry hammer click, then a soft choir chord and a shimmer of bells
+    godSave() {
+      const t = now();
+      noise(t, 0.015, {type: 'highpass', freq: 3000, gain: 0.7});
+      [261.63, 329.63, 392, 523.25, 659.25].forEach((f, i) => {
+        for (const d of [-8, 8]) tone(t + 0.25, f, 2.6, {type: 'sawtooth', gain: 0.018, attack: 0.5, detune: d});
+        tone(t + 0.25, f * 2, 2.4, {type: 'sine', gain: 0.03, attack: 0.6});
+      });
+      [1568, 2093, 2637, 3136, 2637, 2093].forEach((f, i) => tone(t + 0.4 + i * 0.11, f, 0.9, {gain: 0.05}));
+    },
     loadStart() { const t = now(); noise(t, 0.03, {type: 'bandpass', freq: 2400, q: 3, gain: 0.45}); noise(t + 0.05, 0.18, {type: 'bandpass', freq: 1200, to: 2600, q: 1.5, gain: 0.15}); },
     loadBullet() { const t = now(); tone(t, 3200, 0.06, {gain: 0.07}); noise(t + 0.04, 0.025, {type: 'bandpass', freq: 2800, q: 4, gain: 0.5}); tone(t + 0.04, 900, 0.04, {gain: 0.12, to: 600}); },
     win() { const t = now(); [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => keys(t + i * 0.09, f, 0.7, 0.16, sfxBus)); },

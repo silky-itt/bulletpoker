@@ -130,6 +130,12 @@ details summary{cursor:pointer;font-weight:700}
 @keyframes pop{from{transform:scale(1.6)}to{transform:scale(1)}}
 .cylsvg .pr{fill:#b0603a}
 @media (max-width:620px){ .rrow{grid-template-columns:auto minmax(0,1fr);gap:4px 12px}.rname{grid-column:1/-1;text-align:left;font-size:15px}.card2d.res{width:42px;height:60px}.card2d.res .r{font-size:17px}.card2d.res .s{font-size:21px}.rboard{gap:6px;padding:10px 12px}.rhand{font-size:18px} }
+.goldflash{position:fixed;inset:0;background:radial-gradient(circle at 50% 35%,rgba(255,226,140,.85),rgba(255,226,140,0) 60%);opacity:0;pointer-events:none;z-index:9}
+.goldflash.on{animation:gf 2.6s ease-out}
+@keyframes gf{0%{opacity:0}12%{opacity:1}100%{opacity:0}}
+.godsave{display:grid;justify-items:center;gap:6px;text-align:center}
+.shot.god{color:#ffe08a;text-shadow:0 0 24px rgba(255,214,110,.9),0 4px 30px rgba(0,0,0,.8);animation:godIn .6s cubic-bezier(.2,1.6,.4,1) both}
+@keyframes godIn{from{transform:scale(.4);opacity:0}to{transform:none;opacity:1}}
 .redflash{position:fixed;inset:0;background:var(--blood);opacity:0;pointer-events:none;z-index:9}
 .redflash.on{animation:rf 1.2s ease-out}
 @keyframes rf{0%{opacity:.75}100%{opacity:0}}
@@ -145,6 +151,7 @@ details summary{cursor:pointer;font-weight:700}
 <canvas id="view" aria-label="3D poker table"></canvas>
 <div id="labels"></div>
 <div class="redflash" id="redflash"></div>
+<div class="goldflash" id="goldflash"></div>
 <div id="hud"></div>
 <div id="ov"></div>
 
@@ -218,7 +225,7 @@ function renderSetup(){
       <li>Every hand, each player starts with <b>1 bullet</b> loaded. Two hole cards, five community cards, four betting rounds.</li>
       <li><b>Call</b> matches the highest load. <b>Raise</b> adds 1 bullet. <b>All-in</b> goes straight to 6.</li>
       <li><b>Fold</b> and you pull the trigger right away with what you loaded. Lose the showdown and you pull it too. The winner is safe.</li>
-      <li>With k bullets the chance of death is k/6. A full load of 6 still <b>jams 5%</b> of the time.</li>
+      <li>With k bullets the chance of death is k/6. Load all 6 and there is still a <b>5% God Save</b>: the hammer falls on nothing and you live.</li>
       <li><b>Coward's Fold</b> (once per match): fold and take only 1 bullet.</li>
       <li><b>Switch</b> (once per match): swap a hole card for one of 4 / 3 / 2 offered cards (pre-flop / flop / turn). No All-in on that turn.</li>
       <li>Keys: <b>F</b> fold, <b>C</b> check/call, <b>R</b> raise, <b>A</b> all-in, <b>S</b> switch, <b>B</b> board view, <b>M</b> change music.</li>
@@ -270,13 +277,14 @@ function onEvent(type, d, S){
     case 'loadBullet': audio.play('loadBullet'); break;
     case 'aim': audio.play('spin'); break;
     case 'click': audio.play('click'); audio.tension(false); break;
-    case 'jam': audio.play('jam'); audio.tension(false); break;
+    case 'godsave': audio.play('godSave'); audio.tension(false); flashGold(); break;
     case 'bang': audio.play('bang'); audio.tension(false); if (d.pid === viewer) setTimeout(() => audio.play('lose'), 600); flashRed(); break;
     case 'win': case 'showdown': audio.play('win'); if (scene3d) d.ids.forEach(id => scene3d.react(id, 'happy')); break;
     case 'yourTurn': if (S.players[d.pid].kind === 'human') audio.play('yourTurn'); break;
     case 'gameOver': audio.play(d.winner === viewer ? 'win' : 'lose'); break;
   }
 }
+function flashGold(){ const f = document.getElementById('goldflash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
 function flashRed(){ const f = document.getElementById('redflash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
 
 /* ---------- showdown board + cylinder ---------- */
@@ -331,7 +339,7 @@ function render(){
     const p = S.players[S.gun.pid];
     center = S.gun.state === 'load' || S.gun.state === 'aim' ? cylinderHTML(S.gun, p)
       : S.gun.state === 'bang' ? `<div class="shot dead">BANG!</div>`
-      : S.gun.state === 'jam' ? `<div class="shot live">Jammed!</div>` : `<div class="shot live">Click.</div>`;
+      : S.gun.state === 'godsave' ? `<div class="godsave"><div class="shot god">GOD SAVE!</div><div class="label">${esc(p.name)} survived six bullets · 5% chance</div></div>` : `<div class="shot live">Click.</div>`;
   }
   const results = S.showdown && S.winners && !S.gun ? resultsHTML(S) : '';
   audio.setIntensity(musicIntensity(S));

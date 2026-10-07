@@ -4,7 +4,7 @@
 'use strict';
 const E = root.PokerEngine;
 const CHAMBERS = 6;          // six-chamber revolver, max bet 6 bullets
-const JAM = 0.05;            // a full load still jams 5% of the time
+const GOD_SAVE = 0.05;       // with all 6 chambers loaded, 5% chance of a God Save
 const SWITCH_OFFERS = {preflop: 4, flop: 3, turn: 2};
 const STREET_NAME = {preflop: 'Pre-flop', flop: 'Flop', turn: 'Turn', river: 'River', showdown: 'Showdown'};
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -47,8 +47,8 @@ function createGame(seats, onChange, opts = {}) {
 
   // Pull the trigger with k bullets in a six-chamber gun.
   async function shoot(p, k, t, reason) {
-    const jam = k >= CHAMBERS && Math.random() < JAM;
-    const dead = !jam && Math.random() < k / CHAMBERS;
+    const saved = k >= CHAMBERS && Math.random() < GOD_SAVE;
+    const dead = !saved && Math.random() < k / CHAMBERS;
     // 1) load the cylinder one bullet at a time
     S.gun = {pid: p.id, bullets: k, loaded: 0, state: 'load', reason};
     log(`${p.name} ${reason}: loading ${k} bullet${k > 1 ? 's' : ''}...`);
@@ -64,12 +64,12 @@ function createGame(seats, onChange, opts = {}) {
     fx('aim', {pid: p.id, bullets: k});
     emit();
     await wait(2100); if (t !== token) return;
-    S.gun.state = dead ? 'bang' : jam ? 'jam' : 'click';
+    S.gun.state = dead ? 'bang' : saved ? 'godsave' : 'click';
     if (dead) { p.alive = false; log(`BANG! ${p.name} is out.`); }
-    else log(jam ? `The gun jams! ${p.name} cheats death.` : `Click... ${p.name} survives.`);
+    else log(saved ? `GOD SAVE! Six bullets, and the hammer still falls on nothing. ${p.name} lives.` : `Click... ${p.name} survives.`);
     fx(S.gun.state, {pid: p.id});
     emit();
-    await wait(2000); if (t !== token) return;
+    await wait(saved ? 3200 : 2000); if (t !== token) return;
     S.gun = null; fx('gunDown', {pid: p.id}); emit();
   }
 
@@ -158,7 +158,7 @@ function createGame(seats, onChange, opts = {}) {
     const foldCost = (o.canCoward ? 1 : p.bet) / CHAMBERS;
     const streetsLeft = {preflop: 3, flop: 2, turn: 1, river: 0}[S.street];
     const finalBet = Math.min(CHAMBERS, S.currentBet + (streetsLeft ? 1 : 0));
-    const stayCost = (1 - eq) * finalBet / CHAMBERS;
+    const stayCost = (1 - eq) * (finalBet >= CHAMBERS ? 1 - GOD_SAVE : finalBet / CHAMBERS);
     if (o.canAllIn && eq > 0.78 && r < 0.35) return {type: 'allin'};
     if (o.canRaise && (edge > 0.22 || (edge > 0.12 && r < 0.45))) return {type: 'raise'};
     if (o.canCheck && o.canRaise && r < p.style.bluff * (S.board.length ? 1.5 : 1)) return {type: 'raise'};

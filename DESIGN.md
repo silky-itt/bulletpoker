@@ -23,7 +23,7 @@ A browser-based 3D bluffing game in the spirit of *Liar's Bar* (Curve Animation,
 | Players | 2–4 seats, each **Human** or **Bot**. Several humans can share one device (hot-seat). |
 | Ante | Every hand, each player starts with **1 bullet** loaded. |
 | Betting | Texas Hold'em streets: pre-flop, flop, turn, river. **Check**, **Call** (match highest bullets), **Raise** (+1 bullet), **All-in** (straight to 6). |
-| Gun | Six-chamber revolver. With *k* bullets the death chance is *k*/6. A full 6-bullet load has a **5% jam** chance (inspired by the original's "even all-in can misfire"). |
+| Gun | Six-chamber revolver. With *k* bullets the death chance is *k*/6. A full 6-bullet load has a **5% God Save** chance: the hammer falls on nothing and the player lives (named after the original game's *God Save* mechanic). |
 | Fold | You pull the trigger immediately with the bullets you have loaded. |
 | Showdown | Best hand is safe. Every other player still in pulls the trigger with their bullets. Ties are all safe. |
 | Coward's Fold | Once per match: fold and take only 1 bullet. |
@@ -88,7 +88,8 @@ Low-poly, built from primitives, chunky proportions (big head, small body), seat
   1. **Open (0.7 s):** the gun floats up in front of the shooter, rear of the cylinder turned toward the viewer, barrel tilted up.
   2. **Load (0.42 s per bullet):** each bet bullet lifts off the table in a small arc and drops into the next chamber. A brass round appears in that chamber with a "tink".
   3. **Spin & raise (2.1 s):** the cylinder spins, the hammer cocks, and the gun moves to the shooter's temple (or beside your camera if it's you). The shooter's face goes to fear.
-  4. **Result (2 s):** click / jam / BANG.
+  4. **Result (2 s, 3.2 s for God Save):** click / GOD SAVE / BANG.
+  - **God Save effect:** golden radial flash over the screen, a warm light from above the survivor, a spinning gold halo over their head, "GOD SAVE!" text popping in with a glow, and a choir chord with bells. The survivor smiles with relief.
   - HUD mirror: a 2D cylinder (6 chambers) in the center fills chamber by chamber ("Rusty loads 2 / 3"), then spins ("Rusty pulls the trigger · 3 of 6").
 
 ---
@@ -186,7 +187,7 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 | Gun raised | Cylinder spin: 12–16 clicks slowing down, then the hammer cocks |
 | Click (survived) | Sharp dry hammer click, then a breath of relief (filtered noise) |
 | BANG | Noise burst with falling low-pass + 55 Hz thump + synthetic reverb tail; screen shake + red flash |
-| Jam | Dull metallic clack + "tink" |
+| God Save | Dry hammer click, then a soft detuned choir chord (C major) with a cascade of high bells |
 | Hand won | Short rising Rhodes arpeggio |
 | Your turn | Soft two-tone bell (880 / 1320 Hz) |
 | UI click | Tiny tick |

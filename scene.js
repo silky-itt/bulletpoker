@@ -190,6 +190,11 @@ function createScene(canvas, labelLayer) {
   lamp.castShadow = true; lamp.shadow.mapSize.set(1024, 1024); lamp.shadow.bias = -0.0005;
   scene.add(lamp, lamp.target);
   const flash = new T.PointLight(0xffa040, 0, 6); scene.add(flash);
+  // God Save: golden light from above + a halo over the survivor
+  const godLight = new T.PointLight(0xffe08a, 0, 5); scene.add(godLight);
+  const halo = new T.Mesh(new T.TorusGeometry(0.2, 0.025, 10, 32), new T.MeshBasicMaterial({color: 0xffe08a, transparent: true, opacity: 0}));
+  halo.rotation.x = Math.PI / 2; halo.visible = false; scene.add(halo);
+  let godT = 0;
   const lampGroup = new T.Group();
   const shade = new T.Mesh(new T.ConeGeometry(0.45, 0.35, 24, 1, true), new T.MeshStandardMaterial({color: 0x2c3a2a, side: T.DoubleSide, metalness: 0.4, roughness: 0.5}));
   shade.position.y = 3.25;
@@ -418,7 +423,13 @@ function createScene(canvas, labelLayer) {
       const m = new T.Matrix4().lookAt(gunTarget.pos, tgt, new T.Vector3(0, 1, 0));
       gunTarget.quat = new T.Quaternion().setFromRotationMatrix(m).multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), Math.PI / 2));
       if (S.gun.state === 'bang' && !S.gun._fx) { S.gun._fx = true; flashT = 1; shake = 1; flash.position.copy(gunTarget.pos); }
-      if ((S.gun.state === 'click' || S.gun.state === 'jam') && !S.gun._fx) { S.gun._fx = true; shake = 0.15; seats[i].face.relief = clock.elapsedTime + 0.9; seats[i].face.happyUntil = clock.elapsedTime + 1.6; }
+      if (S.gun.state === 'click' && !S.gun._fx) { S.gun._fx = true; shake = 0.15; seats[i].face.relief = clock.elapsedTime + 0.9; seats[i].face.happyUntil = clock.elapsedTime + 1.6; }
+      if (S.gun.state === 'godsave' && !S.gun._fx) {
+        S.gun._fx = true; shake = 0.3; godT = 1;
+        seats[i].face.relief = clock.elapsedTime + 1.2; seats[i].face.happyUntil = clock.elapsedTime + 3.2;
+        godLight.position.copy(headPos(i)).add(new T.Vector3(0, 0.9, 0));
+        halo.position.copy(headPos(i)).add(new T.Vector3(0, 0.42, 0)); halo.visible = i !== viewer;
+      }
       gun.userData.spinning = S.gun.state === 'aim';
     } else {
       gunTarget.pos = new T.Vector3(-0.15, TOP + 0.035, -0.55);
@@ -497,6 +508,9 @@ function createScene(canvas, labelLayer) {
     lampGroup.rotation.z = Math.sin(t * 0.7) * 0.03;
     lamp.position.x = Math.sin(t * 0.7) * -0.1;
     flash.intensity = flashT * 30; flashT = Math.max(0, flashT - dt * 4);
+    godLight.intensity = godT * 9 * (0.85 + Math.sin(t * 9) * 0.15); halo.material.opacity = Math.min(1, godT * 1.6);
+    halo.rotation.z += dt * 1.5; halo.position.y += Math.sin(t * 3) * 0.0008;
+    godT = Math.max(0, godT - dt * 0.33); if (godT === 0) halo.visible = false;
     lamp.intensity = 2.4 * (0.96 + Math.random() * 0.04);
     camera.position.lerp(camPos, k(boardView ? 4 : 3));
     curLook.lerp(camLook, k(3));
