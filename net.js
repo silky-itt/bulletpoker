@@ -3,7 +3,7 @@
 //   its room every few seconds; an MQTT "last will" clears the room if the tab dies.
 // - Game traffic: PeerJS (WebRTC data channels, encrypted, browser to browser).
 //   The host's browser runs the rules; guests send actions and receive a filtered state.
-// See DESIGN.md §9.
+// See DESIGN.md §8.
 (function (root) {
 'use strict';
 const V = 1;

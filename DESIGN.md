@@ -211,13 +211,13 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 - [ ] **[Future]** Shot cam dolly, slow-motion on BANG
 - [ ] **[Future]** Smoke particles in the lamp cone
 - [ ] **[Future]** Character hands that actually hold the gun
-- [x] Online tables: lobby list, host / join by code or invite link (see §9)
+- [x] Online tables: lobby list, host / join by code or invite link (see §8)
 - [ ] **[Future]** Reconnect to a running game after a page refresh
 - [ ] **[Future]** Host migration (game survives the host leaving)
 
 ---
 
-## 9. Online play
+## 8. Online play
 - **Topology:** the host's browser is the server. It runs `PokerGame`; guests send intents and receive a filtered view of the state. Guests can never see another player's hole cards before showdown, because those cards are never sent to them.
 - **Game transport:** PeerJS (WebRTC data channels, DTLS-encrypted), using the free PeerJS cloud broker only for the handshake. Peer id = `bulletpoker-v1-<CODE>`.
 - **Lobby transport:** public MQTT brokers over WebSocket (HiveMQ and EMQX, **connected in parallel**, because each takes 6–7 s to answer and host and viewer must not end up on different brokers). Public tables publish a retained message on `bulletpoker/v1/rooms/<CODE>` every 8 s. An MQTT *last will* plus an explicit clear on close removes the table; listings older than 30 s are dropped.
@@ -225,7 +225,7 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 - **Leaving:** a guest who disconnects mid-game leaves the table (out, no bullet fired). If the host leaves, the table closes for everyone.
 - **Limits:** tables are best-effort (free public infrastructure, no accounts). Some strict networks block WebRTC. Only runs from a normal web host such as GitHub Pages, not inside a claude.ai artifact, which blocks WebRTC and WebSockets.
 
-## 8. Tech notes
+## 9. Tech notes
 - `engine.js`: card model, hand evaluator (best 5 of 7), Monte Carlo equity. No DOM.
 - `game.js`: rules and turn flow; emits `onChange(state)` and `onEvent(type, data)`. No DOM.
 - `scene.js`: Three.js scene, characters, faces, camera modes, portrait renderer. Reads state only.
