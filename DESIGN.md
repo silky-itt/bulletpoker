@@ -12,7 +12,7 @@ A browser-based 3D bluffing game in the spirit of *Liar's Bar* (Curve Animation,
 2. **Readable at a glance.** The game is played in first person in a dim room, so the HUD has to carry the critical info: your cards, your bullets, the bet to call, whose turn it is.
 3. **Characters with attitude.** Players are animals with faces that react: they blink, look at whoever is acting, panic when the gun is on them, smirk when they win.
 4. **Juice on every action.** Each action has a sound and a small motion. The gunshot is the one big moment, so nothing else competes with it.
-5. **Runs anywhere.** Single HTML page plus JS, Three.js r128 from cdnjs, no external assets. All audio is synthesized with the Web Audio API. Must run on an M1 MacBook and on a phone.
+5. **Runs anywhere.** Single HTML page plus JS, Three.js r128 and MQTT.js vendored in `assets/vendor/`, no CDN. All audio is synthesized with the Web Audio API. Must run on an M1 MacBook and on a phone.
 
 ---
 
@@ -219,20 +219,25 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 
 ## 8. Online play
 - **Topology:** the host's browser is the server. It runs `PokerGame`; guests send intents and receive a filtered view of the state. Guests can never see another player's hole cards before showdown, because those cards are never sent to them.
-- **Game transport:** PeerJS (WebRTC data channels, DTLS-encrypted), using the free PeerJS cloud broker only for the handshake. Peer id = `bulletpoker-v1-<CODE>`.
-- **Lobby transport:** public MQTT brokers over WebSocket (HiveMQ and EMQX, **connected in parallel**, because each takes 6–7 s to answer and host and viewer must not end up on different brokers). Public tables publish a retained message on `bulletpoker/v1/rooms/<CODE>` every 8 s. An MQTT *last will* plus an explicit clear on close removes the table; listings older than 30 s are dropped.
+- **Brokers:** public MQTT brokers over secure WebSocket: HiveMQ, EMQX and test.mosquitto.org:8081, **connected in parallel**. Every message is published to all connected brokers and the receiver merges them, so one slow, throttled (EMQX's public broker rate-limits) or unreachable broker doesn't matter, and host and guests never end up on different brokers. Last wills carry the payload `0` ("gone"), not an empty one: test.mosquitto.org disconnects clients with an empty will.
+- **Game transport:** relayed through the brokers (it used to be PeerJS/WebRTC, which failed behind 4G carrier NAT and dropped the table when the host's phone switched apps). Topics under `bulletpoker/v1/t/<CODE>/`: `h` is the host's inbox (every guest writes there), `g/<guestId>` is one guest's own inbox, `p` is the host's retained presence (cleared by its last will).
+  - **Handshake:** the guest repeats a hello (`s`, with its ECDH public key) on `h` every second; the host answers on `g/<guestId>` with its own key. Both derive an AES-GCM key, and every message body is encrypted, because anyone can subscribe to `#` on a public broker and hole cards must stay secret. (Plaintext only if a browser lacks WebCrypto, e.g. plain http on a LAN address.)
+  - **Reliability:** each message has a seq and is resent (1 s, backing off to 2.5 s) until acked. Acks are cumulative plus selective ranges; a selective ack that skips a seq triggers an immediate resend of it. The receiver drops duplicates (three brokers deliver everything up to three times) and delivers strictly in order.
+  - **Liveness:** pings every 5 s. A peer silent for 90 s is gone, but only judged while our own tab is visible (hidden tabs have frozen timers), and a peer that announced its tab went hidden gets 10 minutes, so a host can switch apps and come back to the same table. Closing flushes unacked messages (so a `bye` arrives), then repeats a goodbye (`x`) until answered.
+  - **Join errors:** no broker within 15 s → "could not reach the game servers"; no presence for the code within 10 s → "table not found"; presence but no answer within 30 s → "host is not answering".
+- **Lobby:** public tables publish a retained message on `bulletpoker/v1/rooms/<CODE>` every 8 s. An MQTT *last will* plus an explicit clear on close removes the table; listings older than 30 s are dropped.
 - **Messages:** guest → host: `hello`, `pick`, `act`, `swOpen`, `swPick`. Host → guest: `welcome`, `room`, `state` (filtered, with the guest's seat), `ev` (sound/face events), `lobby`, `bye`.
 - **Leaving:** a guest who disconnects mid-game leaves the table (out, no bullet fired). If the host leaves, the table closes for everyone.
-- **Limits:** tables are best-effort (free public infrastructure, no accounts). Some strict networks block WebRTC. Only runs from a normal web host such as GitHub Pages, not inside a claude.ai artifact, which blocks WebRTC and WebSockets.
+- **Limits:** tables are best-effort (free public infrastructure, no accounts, no broker SLA). Encryption stops eavesdroppers but there is no authentication: someone who actively injects messages into the table topics could disrupt a table. Networks that block WebSockets can't play. Only runs from a normal web host such as GitHub Pages, not inside a claude.ai artifact, which blocks WebSockets.
 
 ## 9. Tech notes
 - `engine.js`: card model, hand evaluator (best 5 of 7), Monte Carlo equity. No DOM.
 - `game.js`: rules and turn flow; emits `onChange(state)` and `onEvent(type, data)`. No DOM.
 - `scene.js`: Three.js scene, characters, faces, camera modes, portrait renderer. Reads state only.
 - `audio.js`: Web Audio synth for music and SFX.
-- `net.js`: lobby (MQTT) and table networking (PeerJS), state filtering per seat.
+- `net.js`: lobby and table networking (both over MQTT), reliable encrypted links, state filtering per seat.
 - `index.html`: profile, lobby, room, HUD, input, and the wiring between the files above.
-- Three.js **r128 UMD** from cdnjs (the last line with a `three.min.js` global build there).
+- Three.js **r128 UMD** (`three.min.js` global build) and MQTT.js 5.10.1 (`dist/mqtt.min.js`), vendored in `assets/vendor/` from the npm packages (byte-identical to the former CDN copies).
 
 ---
 

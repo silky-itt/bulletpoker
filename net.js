@@ -1,18 +1,24 @@
 // Bullet Poker online play.
 // - Lobby (room discovery): retained messages on a public MQTT broker. Each host announces
 //   its room every few seconds; an MQTT "last will" clears the room if the tab dies.
-// - Game traffic: PeerJS (WebRTC data channels, encrypted, browser to browser).
-//   The host's browser runs the rules; guests send actions and receive a filtered state.
+// - Game traffic: relayed through the same MQTT brokers, one topic per guest, with seq/ack/resend
+//   and end-to-end encryption. The host's browser runs the rules; guests send actions and
+//   receive a filtered state.
 // See DESIGN.md §8.
 (function (root) {
 'use strict';
 const V = 1;
 const TOPIC = `bulletpoker/v${V}/rooms/`;
-const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt'];
-const PEER_PREFIX = `bulletpoker-v${V}-`;
+const TABLE = `bulletpoker/v${V}/t/`;
+const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_SEATS = 4;
 const STALE_MS = 30000;
+// Last-will payload meaning "this host is gone". Not empty: test.mosquitto.org drops clients whose
+// will is empty. An explicit close publishes GONE, then '' to delete the retained message where
+// the broker allows it (test.mosquitto.org disconnects on that too, but we are leaving anyway).
+const GONE = '0';
+const clearRetained = (mq, topic) => { mq.publish(topic, GONE, {retain: true, qos: 0}); mq.publish(topic, '', {retain: true, qos: 0}); };
 
 const makeCode = (n = 5) => Array.from({length: n}, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
@@ -86,59 +92,308 @@ function viewFor(S, seat) {
   };
 }
 
-/* ---------- transports (swappable for tests) ---------- */
-function peerTransport() {
-  const Peer = root.Peer;
-  if (!Peer) throw new Error('PeerJS failed to load.');
-  return {
-    listen(code, onConn, onReady, onError) {
-      const peer = new Peer(PEER_PREFIX + code, {debug: 0});
-      let ready = false, dead = false;
-      peer.on('open', () => { if (!ready) { ready = true; onReady(); } });
-      peer.on('connection', c => onConn(wrapConn(c)));
-      // Once open, signaling hiccups must not kill a running table: open data channels keep working.
-      peer.on('disconnected', () => { if (!dead) setTimeout(() => { if (!dead && !peer.destroyed) peer.reconnect(); }, 2000); });
-      peer.on('error', e => { if (!ready) onError(e.type === 'unavailable-id' ? 'taken' : (e.type || 'error')); });
-      return () => { dead = true; peer.destroy(); };
-    },
-    connect(code, onReady, onError) {
-      const peer = new Peer({debug: 0});
-      let conn, ready = false;
-      peer.on('open', () => {
-        if (conn) return;
-        const c = peer.connect(PEER_PREFIX + code, {reliable: true});
-        conn = wrapConn(c);
-        c.on('open', () => { ready = true; onReady(conn); });
-      });
-      peer.on('error', e => !ready && onError(e.type === 'peer-unavailable' ? 'Room not found. Check the code, or the host may have closed it.' : 'Connection failed (' + (e.type || 'error') + ').'));
-      return () => peer.destroy();
-    },
-  };
-}
-function wrapConn(c) {
-  const h = {data: [], close: []};
-  c.on('data', d => h.data.forEach(f => f(d)));
-  c.on('close', () => h.close.forEach(f => f()));
-  c.on('error', () => h.close.forEach(f => f()));
-  return {send: m => { try { c.send(m); } catch {} }, on: (ev, f) => h[ev].push(f), close: () => c.close(), id: c.peer};
-}
-
-// Connect to every broker at once (they are slow to answer and we must not split hosts and
-// viewers across brokers). Publishes go to all; messages from all are merged by the caller.
+/* ---------- MQTT client: every broker at once ---------- */
+// Connect to every broker in parallel (they are slow to answer and we must not split hosts and
+// guests across brokers). Publishes go to all; messages from all are merged by the caller,
+// which must expect duplicates. `loss` drops that share of incoming live messages (tests only;
+// retained ones are kept, since a real connection doesn't lose them).
 function mqttClient(opts) {
   const mqtt = root.mqtt;
   if (!mqtt) return null;
-  const clients = BROKERS.map(url => {
-    const c = mqtt.connect(url, {connectTimeout: 20000, reconnectPeriod: 5000, clean: true, ...opts.connect});
+  const loss = opts.loss || 0;
+  const clients = (opts.brokers || BROKERS).map(url => {
+    const c = mqtt.connect(url, {connectTimeout: 20000, reconnectPeriod: 4000, keepalive: 30, clean: true, ...opts.connect});
     c.on('connect', () => opts.onConnect && opts.onConnect(c));
-    c.on('message', (t, m) => opts.onMessage && opts.onMessage(t, m));
+    c.on('message', (t, m, pk) => { if (!(loss && !pk.retain && Math.random() < loss)) opts.onMessage && opts.onMessage(t, m); });
     c.on('error', () => {});
     return c;
   });
   return {
     get connected() { return clients.some(c => c.connected); },
     publish(topic, payload, o) { for (const c of clients) if (c.connected) c.publish(topic, payload, o); },
+    // After the tab comes back from the background, don't wait for the reconnect timer.
+    kick() { for (const c of clients) if (!c.connected && !c.disconnecting && !c.reconnecting) try { c.reconnect(); } catch {} },
     end() { for (const c of clients) c.end(true); },
+  };
+}
+
+/* ---------- table transport: reliable links relayed through MQTT ---------- */
+// Topics under bulletpoker/v1/t/<CODE>/: `h` = host inbox (all guests write), `g/<guestId>` =
+// one guest's inbox, `p` = retained host presence (cleared by last will).
+// Every data message has a seq; it is resent until acked, and the receiver drops duplicates and
+// delivers in order. Acks are cumulative plus selective (ranges already buffered past a gap), so
+// one lost message doesn't make the sender repeat everything after it. Payloads are AES-GCM encrypted with a per-guest ECDH key, because public
+// brokers let anyone subscribe to `#` and hole cards must stay secret.
+// Interface (shared with the test transports): listen(code, onConn, onReady, onError) -> stop,
+// connect(code, onReady, onError) -> stop; conn = {send, on('data'|'close'), close, id}.
+const TICK_MS = 250, RTO_MS = 1000, RTO_MAX = 2500, FAST_MS = 400, RESEND_PER_TICK = 24, PING_MS = 5000;
+const PEER_TIMEOUT = 90000;      // no frame for this long (while we are visible) = peer left
+const PEER_HIDDEN_TIMEOUT = 600000; // peer said its tab is hidden (phone switched apps)
+const FLUSH_MS = 3000;           // closing: keep resending this long, then hang up
+const CONNECT_MS = 15000, JOIN_MS = 30000, NOT_FOUND_MS = 10000;
+const ERR_OFFLINE = 'Could not reach the game servers. Check your internet connection (some networks block WebSockets).';
+
+const subtle = () => (root.crypto && root.crypto.subtle) || null; // missing outside secure contexts
+const toB64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const fromB64 = s => Uint8Array.from(atob(s), ch => ch.charCodeAt(0));
+const ENC = new TextEncoder(), DEC = new TextDecoder();
+async function makeKeys() {
+  if (!subtle()) return null;
+  try {
+    const pair = await subtle().generateKey({name: 'ECDH', namedCurve: 'P-256'}, false, ['deriveKey']);
+    return {pair, pub: toB64(await subtle().exportKey('raw', pair.publicKey))};
+  } catch { return null; }
+}
+// Shared AES key, or null (plaintext) if either side has no WebCrypto, e.g. plain http on a LAN IP.
+async function linkKey(keys, peerPub) {
+  if (!keys || typeof peerPub !== 'string') return null;
+  const pub = await subtle().importKey('raw', fromB64(peerPub), {name: 'ECDH', namedCurve: 'P-256'}, false, []);
+  return subtle().deriveKey({name: 'ECDH', public: pub}, keys.pair.privateKey, {name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']);
+}
+
+const isHidden = () => !!(root.document && root.document.hidden);
+const parseFrame = m => {
+  try { const f = JSON.parse(m.toString()); return f && typeof f === 'object' && typeof f.f === 'string' && f.f.length <= 16 ? f : null; } catch { return null; }
+};
+
+// One reliable, ordered link between this endpoint (`me`) and a peer.
+function makeLink({me, peer, key, pub, onDead}) {
+  const h = {data: [], close: []};
+  let tx = 0, rx = 0, dead = false, closing = 0, hangup = 0, peerEnd = null, peerEndAt = 0, ackTimer = null;
+  let lastSeen = Date.now(), lastPing = 0, peerHidden = false;
+  const unacked = new Map(); // seq -> {body, sent, rto}
+  const inbox = new Map();   // seq -> decoded message, waiting for the gap before it to fill
+  const aad = (from, q) => ENC.encode(from + '>' + q);
+  const raw = f => pub(JSON.stringify({f: me, ...f}));
+
+  async function seal(m, q) {
+    const text = JSON.stringify(m);
+    if (!key) return text;
+    const iv = root.crypto.getRandomValues(new Uint8Array(12));
+    const c = await subtle().encrypt({name: 'AES-GCM', iv, additionalData: aad(me, q)}, key, ENC.encode(text));
+    return {iv: toB64(iv), c: toB64(c)};
+  }
+  async function open(b, q) {
+    if (!key) return JSON.parse(b);
+    const p = await subtle().decrypt({name: 'AES-GCM', iv: fromB64(b.iv), additionalData: aad(peer, q)}, key, fromB64(b.c));
+    return JSON.parse(DEC.decode(p));
+  }
+  // Ranges of seqs held past a gap, e.g. [[7, 9], [12, 12]].
+  function sack() {
+    if (!inbox.size) return undefined;
+    const out = [];
+    for (const q of [...inbox.keys()].sort((x, y) => x - y)) {
+      const r = out[out.length - 1];
+      if (r && q === r[1] + 1) r[1] = q; else if (out.push([q, q]) > 16) { out.pop(); break; }
+    }
+    return out;
+  }
+  const sendData = (q, e) => { e.sent = Date.now(); raw({k: 'd', q, a: rx, s: sack(), b: e.body}); };
+  const ping = () => { lastPing = Date.now(); raw({k: 'p', a: rx, s: sack(), h: isHidden() ? 1 : 0}); };
+  function die(notify) {
+    if (dead) return;
+    dead = true;
+    clearTimeout(ackTimer);
+    if (notify) raw({k: 'x', n: tx});
+    onDead();
+    h.close.forEach(f => f());
+  }
+  function drain() {
+    while (inbox.has(rx + 1)) {
+      const m = inbox.get(rx + 1);
+      inbox.delete(++rx);
+      if (!dead) h.data.forEach(f => f(m));
+    }
+    if (peerEnd != null && rx >= peerEnd) die(false);
+  }
+  function ackSoon() { if (!ackTimer) ackTimer = setTimeout(() => { ackTimer = null; if (!dead) raw({k: 'a', a: rx, s: sack()}); }, 40); }
+
+  const link = {
+    get dead() { return dead; },
+    recv(f) {
+      if (dead) return;
+      lastSeen = Date.now();
+      if (f.a != null) for (const q of unacked.keys()) if (q <= f.a) unacked.delete(q); else break;
+      if (Array.isArray(f.s)) {
+        let top = 0;
+        for (const r of f.s.slice(0, 16)) if (Array.isArray(r)) for (let q = r[0] | 0, e = Math.min(r[1] | 0, q + 512); q <= e; q++) { unacked.delete(q); top = Math.max(top, q); }
+        // Fast retransmit: the peer holds later messages, so anything older still unacked was lost.
+        const now = Date.now();
+        let n = 0;
+        for (const [q, e] of unacked) {
+          if (q > top || n >= RESEND_PER_TICK) break;
+          if (e.body !== undefined && now - e.sent > FAST_MS) { sendData(q, e); n++; }
+        }
+      }
+      if (f.k === 'p') peerHidden = !!f.h;
+      if (f.k === 'x') {
+        if (hangup) return die(false); // our goodbye was heard
+        raw({k: 'x', n: tx});           // answer, so the closing side can stop repeating
+        if (peerEnd == null) { peerEnd = Math.max(0, f.n | 0); peerEndAt = Date.now(); }
+        return drain();
+      }
+      if (f.k !== 'd') return;
+      const q = f.q | 0;
+      ackSoon();
+      if (q <= rx || inbox.has(q)) return; // duplicate (several brokers, or a resend)
+      open(f.b, q).then(m => { if (!dead && q > rx && !inbox.has(q)) { inbox.set(q, m); drain(); ackSoon(); } }, () => {});
+    },
+    tick(now, hiddenSelf) {
+      if (dead) return;
+      let n = 0;
+      for (const [q, e] of unacked) {
+        if (e.body === undefined || now - e.sent < e.rto) continue;
+        sendData(q, e); e.rto = Math.min(e.rto * 2, RTO_MAX);
+        if (++n >= RESEND_PER_TICK) break;
+      }
+      if (now - lastPing >= PING_MS) ping();
+      // Closing: flush, then repeat the goodbye until the peer answers it (or give up after 2 s).
+      if (closing && (!unacked.size || now - closing > FLUSH_MS)) {
+        if (!hangup) hangup = now;
+        if (now - hangup > 2000) return die(false);
+        return raw({k: 'x', n: tx});
+      }
+      if (peerEnd != null && now - peerEndAt > FLUSH_MS) return die(false); // peer left; stop waiting for the rest
+      // Our own timers are frozen while hidden, so silence then proves nothing.
+      if (!hiddenSelf && now - lastSeen > (peerHidden ? PEER_HIDDEN_TIMEOUT : PEER_TIMEOUT)) die(true);
+    },
+    visible() { lastSeen = Date.now(); ping(); },
+    hidden() { ping(); },
+    conn: {
+      id: peer,
+      send(m) {
+        if (dead || closing) return;
+        const q = ++tx, e = {body: undefined, sent: 0, rto: RTO_MS};
+        unacked.set(q, e);
+        seal(m, q).then(body => { e.body = body; if (!dead && unacked.has(q)) sendData(q, e); }, () => unacked.delete(q));
+      },
+      on: (ev, f) => h[ev] && h[ev].push(f),
+      // Graceful: what was already sent (e.g. a 'bye') still gets delivered before hanging up.
+      close() { if (!dead && !closing) closing = Date.now(); },
+    },
+  };
+  return link;
+}
+
+// Shared by host and guest: MQTT clients, the link table, timers, and tab visibility.
+function endpoint({brokers, loss, will, subs, onFrame, onSubscribed}) {
+  const id = Math.random().toString(36).slice(2, 12);
+  const links = new Map();
+  let ended = false;
+  const mq = mqttClient({
+    brokers, loss, connect: will ? {will: will(id)} : {},
+    onConnect: c => c.subscribe(subs(id), {qos: 0}, err => { if (!err && !ended) onSubscribed(c); }),
+    onMessage: (t, m) => { if (!ended) onFrame(t, parseFrame(m)); },
+  });
+  if (!mq) throw new Error('Online play failed to load (MQTT library missing). Reload the page.');
+  const timer = setInterval(() => { const now = Date.now(), hid = isHidden(); for (const l of [...links.values()]) l.tick(now, hid); }, TICK_MS);
+  const doc = root.document && root.document.addEventListener ? root.document : null;
+  const onVis = () => {
+    if (isHidden()) return links.forEach(l => l.hidden());
+    mq.kick();
+    links.forEach(l => l.visible());
+  };
+  doc && doc.addEventListener('visibilitychange', onVis);
+  return {
+    id, mq, links,
+    // Close every link gracefully, then drop the brokers once the last one is gone.
+    end(before) {
+      if (ended) return;
+      for (const l of links.values()) l.conn.close();
+      const t0 = Date.now();
+      const wait = setInterval(() => {
+        if (links.size && Date.now() - t0 < FLUSH_MS + 3000) return;
+        clearInterval(wait); clearInterval(timer); ended = true;
+        doc && doc.removeEventListener('visibilitychange', onVis);
+        before && before();
+        mq.end();
+      }, 100);
+    },
+  };
+}
+
+function mqttTransport({brokers, loss} = {}) {
+  if (!root.mqtt) throw new Error('Online play failed to load (MQTT library missing). Reload the page.');
+  const base = code => TABLE + code + '/';
+  return {
+    listen(code, onConn, onReady, onError) {
+      const B = base(code);
+      const closedIds = new Set(), pending = new Set();
+      let ready = false, stopped = false, keys = null;
+      const keysReady = makeKeys().then(k => { keys = k; });
+      const synAck = () => JSON.stringify({f: ep.id, k: 's', pk: keys && keys.pub});
+      const toGuest = gid => s => ep.mq.publish(B + 'g/' + gid, s, {qos: 0});
+      const unpresence = () => clearRetained(ep.mq, B + 'p');
+      const fail = err => { if (ready || stopped) return; stopped = true; clearTimeout(offline); ep.end(unpresence); onError(err); };
+      const ep = endpoint({brokers, loss,
+        will: () => ({topic: B + 'p', payload: GONE, retain: true, qos: 0}),
+        subs: () => [B + 'h', B + 'p'],
+        onSubscribed: c => {
+          c.publish(B + 'p', JSON.stringify({f: ep.id, k: 'here', ts: Date.now()}), {retain: true, qos: 0});
+          // Give a retained presence from another host a moment to arrive before claiming the code.
+          if (!ready) setTimeout(() => { if (!stopped && !ready) { ready = true; clearTimeout(offline); keysReady.then(() => !stopped && onReady()); } }, 800);
+        },
+        onFrame(t, f) {
+          if (!f || stopped) return;
+          if (t === B + 'p') { if (f.f !== ep.id) fail('taken'); return; }
+          if (t !== B + 'h') return;
+          const gid = f.f, l = ep.links.get(gid);
+          if (l) return f.k === 's' ? toGuest(gid)(synAck()) : l.recv(f); // repeated hello: the answer was lost
+          if (closedIds.has(gid)) return toGuest(gid)(JSON.stringify({f: ep.id, k: 'x', n: 0}));
+          if (f.k !== 's' || !ready || pending.has(gid)) return;
+          pending.add(gid);
+          keysReady.then(() => linkKey(keys, f.pk)).catch(() => null).then(key => {
+            pending.delete(gid);
+            if (ep.links.has(gid) || stopped) return;
+            const pub = toGuest(gid);
+            const link = makeLink({me: ep.id, peer: gid, key, pub, onDead: () => { ep.links.delete(gid); closedIds.add(gid); }});
+            ep.links.set(gid, link);
+            pub(synAck());
+            onConn(link.conn);
+          });
+        },
+      });
+      const offline = setTimeout(() => fail(ERR_OFFLINE), CONNECT_MS);
+      return () => { if (stopped && !ready) return; stopped = true; clearTimeout(offline); ep.end(unpresence); };
+    },
+    connect(code, onReady, onError) {
+      const B = base(code);
+      let link = null, linking = false, settled = false, seen = false, firstSub = 0, keys = null;
+      const keysReady = makeKeys().then(k => { keys = k; });
+      const fail = err => { if (settled) return; settled = true; clearInterval(syn); ep.end(); onError(err); };
+      const t0 = Date.now();
+      const ep = endpoint({brokers, loss,
+        subs: id => [B + 'g/' + id, B + 'p'],
+        onSubscribed: () => { if (!firstSub) firstSub = Date.now(); },
+        onFrame(t, f) {
+          if (!f) return;
+          if (t === B + 'p') { seen = true; return; }
+          if (link) { if (f.f === link.peer) link.l.recv(f); return; }
+          if (settled) return;
+          if (f.k === 'x') return fail('The host closed the room.');
+          if (f.k !== 's' || linking) return;
+          linking = true;
+          keysReady.then(() => linkKey(keys, f.pk)).catch(() => null).then(key => {
+            if (settled) return;
+            const l = makeLink({me: ep.id, peer: f.f, key, pub: s => ep.mq.publish(B + 'h', s, {qos: 0}), onDead: () => ep.links.delete(f.f)});
+            link = {peer: f.f, l};
+            ep.links.set(f.f, l);
+            settled = true;
+            clearInterval(syn);
+            onReady(l.conn);
+          });
+        },
+      });
+      const syn = setInterval(() => {
+        const now = Date.now();
+        if (!firstSub) { if (now - t0 > CONNECT_MS) fail(ERR_OFFLINE); return; }
+        if (linking) return;
+        if (!seen && now - firstSub > NOT_FOUND_MS) return fail(`Table ${code} not found. Check the code, or the host may have closed it.`);
+        if (now - firstSub > JOIN_MS) return fail(`The host of table ${code} is not answering. They may have lost their connection; try again.`);
+        keysReady.then(() => { if (!linking && !settled) ep.mq.publish(B + 'h', JSON.stringify({f: ep.id, k: 's', pk: keys && keys.pub}), {qos: 0}); });
+      }, 1000);
+      return () => { settled = true; clearInterval(syn); ep.end(); };
+    },
   };
 }
 
@@ -154,7 +409,7 @@ function watchLobby(onList, onStatus) {
     onConnect: c => { c.subscribe(TOPIC + '+'); onStatus && onStatus('online'); },
     onMessage: (t, msg) => {
       const code = t.slice(TOPIC.length);
-      if (!msg || !msg.length) { rooms.delete(code); return publish(); }
+      if (!msg || !msg.length || msg.toString() === GONE) { rooms.delete(code); return publish(); }
       try {
         const r = JSON.parse(msg.toString());
         if (r.v !== V || cleanCode(r.code) !== code) return;
@@ -171,7 +426,7 @@ function watchLobby(onList, onStatus) {
 /* ---------- host a room ---------- */
 // me: {name, animal}. Returns a room controller.
 function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce = true}) {
-  const T = transport || peerTransport();
+  const T = transport || mqttTransport();
   let code = makeCode(), stopListen = null, mq = null, beat = null, closed = false;
   const room = {
     code, name: cleanName(roomName, `${me.name}'s table`, 24), isPublic, status: 'waiting',
@@ -189,7 +444,7 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
     if (!mq || !mq.connected || !room.isPublic) return;
     mq.publish(TOPIC + room.code, JSON.stringify({v: V, code: room.code, name: room.name, host: room.seats[0].name, players: room.seats.length, status: room.status, ts: Date.now()}), {retain: true, qos: 0});
   }
-  function unannounce() { if (mq) mq.publish(TOPIC + room.code, '', {retain: true, qos: 0}); }
+  function unannounce() { if (mq) clearRetained(mq, TOPIC + room.code); }
 
   function pruneGone() { if (gone.size) { room.seats = room.seats.filter(s => !gone.has(s.key)); gone.clear(); } }
   function freeAnimal(want) {
@@ -235,14 +490,14 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
       changed();
       if (announce) {
         mq = mqttClient({
-          connect: {will: {topic: TOPIC + room.code, payload: '', retain: true, qos: 0}},
+          connect: {will: {topic: TOPIC + room.code, payload: GONE, retain: true, qos: 0}},
           onConnect: () => announceNow(),
         });
         beat = setInterval(announceNow, 8000);
       }
     }, err => {
       if (err === 'taken' && !closed) { room.code = code = makeCode(); stopListen && stopListen(); return listen(); }
-      onError && onError('Could not open the room (' + err + '). Check your connection and try again.');
+      onError && onError(err);
     });
   }
   listen();
@@ -280,7 +535,7 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
 
 /* ---------- join a room ---------- */
 function joinRoom({code, me, onRoom, onState, onEvent, onLobby, onClose, transport}) {
-  const T = transport || peerTransport();
+  const T = transport || mqttTransport();
   let conn = null, done = false, key = null, stop = null, seat = null, timeout = null;
   const fail = reason => { if (done) return; done = true; clearTimeout(timeout); onClose && onClose(String(reason || 'Disconnected.').slice(0, 160)); stop && stop(); };
   stop = T.connect(cleanCode(code), c => {
@@ -297,7 +552,7 @@ function joinRoom({code, me, onRoom, onState, onEvent, onLobby, onClose, transpo
     c.on('close', () => fail('Lost connection to the host.'));
     c.send({t: 'hello', v: V, name: me.name, animal: me.animal});
   }, err => fail(err));
-  timeout = setTimeout(() => { if (!key) fail('Could not reach the room. Check the code and your connection.'); }, 20000);
+  timeout = setTimeout(() => { if (!key) fail('Could not reach the room. Check the code and your connection.'); }, 45000);
   return {
     send(m) { conn && conn.send(m); },
     pickAnimal(a) { conn && conn.send({t: 'pick', animal: a}); },
@@ -306,5 +561,5 @@ function joinRoom({code, me, onRoom, onState, onEvent, onLobby, onClose, transpo
   };
 }
 
-root.PokerNet = {watchLobby, hostRoom, joinRoom, viewFor, sanitizeState, sanitizeEvent, cleanCode, MAX_SEATS, ANIMALS};
+root.PokerNet = {watchLobby, hostRoom, joinRoom, mqttTransport, viewFor, sanitizeState, sanitizeEvent, cleanCode, MAX_SEATS, ANIMALS};
 })(typeof window !== 'undefined' ? window : globalThis);

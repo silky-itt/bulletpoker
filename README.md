@@ -28,8 +28,9 @@ python3 -m http.server 8000
 | `game.js` | Rules and turn flow (no DOM) |
 | `scene.js` | Three.js scene, characters, camera |
 | `audio.js` | Web Audio music and SFX |
-| `net.js` | Online tables: MQTT lobby + PeerJS game traffic |
+| `net.js` | Online tables: lobby and game traffic relayed over public MQTT brokers |
 | `DESIGN.md` | Design bible: visuals, UX, audio, rules |
 | `assets/` | Site icon (SVG + PNG sizes) and the link-preview image |
+| `assets/vendor/` | Three.js r128 and MQTT.js 5.10.1 (minified, unmodified copies from npm) |
 
-Three.js r128 (cdnjs), PeerJS 1.5.4 (jsDelivr) and MQTT.js 5.10.1 (unpkg) are loaded from CDNs.
+Third-party libraries are vendored in `assets/vendor/`, so the game doesn't depend on any CDN. Online play needs the public MQTT brokers (HiveMQ, EMQX, test.mosquitto.org) to be reachable.
