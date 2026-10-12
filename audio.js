@@ -11,6 +11,27 @@ function createAudio() {
   try { const s = JSON.parse(localStorage.getItem('bp-audio')); if (s) { musicOn = s.music !== false; sfxOn = s.sfx !== false; } } catch {}
   const save = () => { try { localStorage.setItem('bp-audio', JSON.stringify({music: musicOn, sfx: sfxOn})); } catch {} };
 
+  // iOS plays Web Audio as "ambient" sound, which the silent switch mutes. Ask for "playback"
+  // (Safari 17+), or else keep a silent <audio> loop playing, which switches the page to playback.
+  let keepAlive = null;
+  function silentLoop() {
+    const n = 8000, b = new DataView(new ArrayBuffer(44 + n));
+    const w = (o, s) => [...s].forEach((ch, i) => b.setUint8(o + i, ch.charCodeAt(0)));
+    w(0, 'RIFF'); b.setUint32(4, 36 + n, true); w(8, 'WAVEfmt '); b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
+    b.setUint32(24, 8000, true); b.setUint32(28, 8000, true); b.setUint16(32, 1, true); b.setUint16(34, 8, true); w(36, 'data'); b.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) b.setUint8(44 + i, 128); // 8-bit PCM silence
+    const a = new Audio(URL.createObjectURL(new Blob([b], {type: 'audio/wav'})));
+    a.loop = true; a.setAttribute('playsinline', '');
+    return a;
+  }
+  function playbackSession() {
+    const s = root.navigator && root.navigator.audioSession;
+    if (s) { try { s.type = 'playback'; } catch {} return; }
+    if (!/iP(hone|ad|od)|Macintosh/.test(root.navigator.userAgent) || !('ontouchend' in root.document)) return; // iOS / iPadOS only
+    if (!keepAlive) keepAlive = silentLoop();
+    if (keepAlive.paused && !root.document.hidden) keepAlive.play().catch(() => {});
+  }
+
   function init() {
     if (ctx || !AC) return;
     ctx = new AC();
@@ -182,6 +203,7 @@ function createAudio() {
   function scheduler() {
     if (!ctx || !musicOn) { if (ctx) nextStep = ctx.currentTime + 0.05; return; }
     const tr = TRACKS[track];
+    if (nextStep < ctx.currentTime - 0.1) nextStep = ctx.currentTime + 0.05; // timers were throttled: skip ahead, don't burst
     while (nextStep < ctx.currentTime + 0.25) { tr.step(nextStep, stepIdx++); nextStep += tr.stepDur; }
   }
   function startMusic() {
@@ -208,12 +230,18 @@ function createAudio() {
   const save2 = () => { try { localStorage.setItem('bp-audio', JSON.stringify({music: musicOn, sfx: sfxOn, track})); } catch {} };
 
   return {
+    // Call from a user gesture. Also revives the context after a phone call or app switch
+    // (iOS leaves it "interrupted", not "suspended").
     unlock() {
+      playbackSession();
       init(); if (!ctx) return;
-      if (ctx.state === 'suspended') ctx.resume();
+      if (ctx.state !== 'running') ctx.resume().catch(() => {});
       musicBus.gain.value = musicGain();
       if (!started) { started = true; startMusic(); }
     },
+    // No gesture needed; works where the browser allows it, and the next tap fixes the rest.
+    resume() { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); if (keepAlive && keepAlive.paused) keepAlive.play().catch(() => {}); },
+    pause() { if (keepAlive) keepAlive.pause(); },
     play(name, arg) { if (!ctx || !sfxOn || !SFX[name]) return; try { SFX[name](arg); } catch (e) { console.error(e); } },
     tension,
     setIntensity(l) { intensity = Math.max(0, Math.min(3, l | 0)); },
@@ -232,5 +260,14 @@ function createAudio() {
   };
 }
 
-root.PokerAudio = {createAudio};
+// Mobile browsers only start or resume audio inside a user gesture, and a phone can suspend it
+// at any time (app switch, lock, call). So every tap anywhere re-unlocks.
+function bindUnlock(audio) {
+  const go = () => audio.unlock();
+  for (const ev of ['pointerdown', 'touchend', 'click', 'keydown']) root.addEventListener(ev, go, {capture: true, passive: true});
+  root.document.addEventListener('visibilitychange', () => { if (!root.document.hidden) audio.resume(); else audio.pause(); });
+  root.addEventListener('pageshow', () => audio.resume());
+}
+
+root.PokerAudio = {createAudio, bindUnlock};
 })(window);

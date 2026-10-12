@@ -218,6 +218,7 @@ try { scene3d = PokerScene.createScene(document.getElementById('view'), document
 let portraits = {};
 try { portraits = PokerScene.renderPortraits(); } catch (e) { console.error(e); }
 const audio = PokerAudio.createAudio();
+PokerAudio.bindUnlock(audio);
 
 /* ---------- session ----------
    mode 'host': this browser runs PokerGame and relays to guests.
