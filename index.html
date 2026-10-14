@@ -60,7 +60,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--f-body);o
 .label{font:500 11px/1.3 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
 .big{font-family:var(--f-display);font-size:20px;font-weight:700}
 button{font:inherit;cursor:pointer;border:0}
-button:focus-visible,input:focus-visible,select:focus-visible,.portrait:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
+button:focus-visible,input:focus-visible,select:focus-visible,.thumb:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
 .btn{background:var(--lamp);color:var(--ink);font-weight:700;padding:11px 16px;border-radius:7px}
 .btn:disabled{opacity:.3;cursor:not-allowed}
 .btn.ghost{background:var(--wood-a);color:var(--fg);border:1px solid var(--line)}
@@ -104,15 +104,6 @@ h3{font-size:17px}
 .seat-head{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
 .seat-head input[type=text],.seat-head select{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px 9px;font:inherit;min-width:0;width:100%}
 .seat-head select{width:auto}
-.portraits{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-.portrait{background:var(--bg);border:1.5px solid var(--line);border-radius:9px;padding:0;overflow:hidden;color:var(--fg);text-align:left;display:grid}
-.portrait img{display:block;width:100%;aspect-ratio:22/25;object-fit:cover;background:#1a120c}
-.portrait .ph{width:100%;aspect-ratio:22/25;display:grid;place-items:center;font-family:var(--f-display);font-size:28px;background:#1a120c}
-.portrait .cap{padding:6px 8px 8px;display:grid;gap:1px}
-.portrait .cap b{font-size:14px}
-.portrait .cap span{font-size:11px;color:var(--muted);line-height:1.3}
-.portrait.sel{border-color:var(--lamp);box-shadow:0 0 0 2px var(--lamp)}
-.portrait.taken:not(.sel){opacity:.55}
 .rules{display:grid;gap:5px;margin:0;padding-left:20px;font-size:14px}
 .rules b{color:var(--lamp)}
 details summary{cursor:pointer;font-weight:700}
@@ -178,7 +169,6 @@ details summary{cursor:pointer;font-weight:700}
 .seatcard span{font-size:11px;color:var(--muted)}
 .seatcard.me{border-color:var(--lamp)}
 .seatcard.empty{opacity:.5;border-style:dashed}
-.portrait:disabled{cursor:not-allowed}
 @media (max-width:620px){ .seats4{grid-template-columns:repeat(2,minmax(0,1fr))} }
 /* gun moment: the edges close in and pulse with the heartbeat (audio.js beats every 700 ms) */
 .vignette{position:fixed;inset:0;pointer-events:none;z-index:8;opacity:0;transition:opacity .8s ease;background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 38%,rgba(8,4,2,.55) 70%,rgba(4,2,1,.92) 100%)}
@@ -191,12 +181,72 @@ details summary{cursor:pointer;font-weight:700}
 .volpanel label{display:grid;grid-template-columns:62px minmax(0,1fr) 34px;align-items:center;gap:10px;font-size:13px}
 .volpanel output{font:500 12px var(--f-mono);color:var(--muted);text-align:right}
 .volpanel input[type=range]{width:100%;accent-color:var(--lamp);min-height:28px}
+/* full-screen character select: a live 3D stage with the info and choices over it */
+.csel{position:fixed;inset:0;z-index:40;background:#0e0a07;overflow:hidden}
+.csel[hidden]{display:none}
+.csel canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:pan-y}
+.csel .shade{position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,rgba(14,10,7,0) 38%,rgba(14,10,7,.82) 62%,rgba(14,10,7,.95)),linear-gradient(0deg,rgba(14,10,7,.92),rgba(14,10,7,0) 24%)}
+.cui{position:absolute;inset:0;pointer-events:none}
+.cui>*{pointer-events:auto}
+.cui .top{position:absolute;top:16px;left:16px;right:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;pointer-events:none}
+.cui .top>*{pointer-events:auto}
+.cui .brand{font:italic 900 clamp(22px,3vw,34px)/1 var(--f-display);color:var(--lamp)}
+.cui .info{position:absolute;right:clamp(16px,6vw,90px);top:50%;transform:translateY(-56%);width:min(440px,38vw);display:grid;gap:14px}
+.cui .idx{font:500 12px var(--f-mono);letter-spacing:.22em;color:var(--muted)}
+.cui .cname{font:italic 900 clamp(52px,7.5vw,104px)/.92 var(--f-display);color:var(--paper);text-shadow:0 6px 30px rgba(0,0,0,.6);animation:cIn .35s cubic-bezier(.2,1.4,.4,1) both}
+@keyframes cIn{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+.cui .species{font:700 13px var(--f-mono);letter-spacing:.2em;text-transform:uppercase;color:var(--lamp);margin-top:8px}
+.cui .blurb{margin:0;font-size:17px;line-height:1.45;max-width:34ch}
+.cui .note{margin:0;font-size:14px;color:var(--blood)}
+.cui .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.cui .info.home{width:min(540px,44vw);max-height:calc(100vh - 150px);overflow-y:auto;transform:translateY(-50%);padding:4px 6px 4px 2px;gap:12px;scrollbar-width:thin}
+.cui .lob{display:grid;gap:14px;background:rgba(26,18,12,.8);border:1px solid var(--line);border-radius:12px;padding:14px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.cui .lob section{display:grid;gap:10px;align-content:start;min-width:0}
+.cui .lob h3{margin:0;font-size:17px}
+.cui .lob .rooms{max-height:150px}
+.cui .cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.cui .linkbtn{justify-self:start;background:none;border:0;padding:4px 0;color:var(--muted);text-decoration:underline;text-underline-offset:3px;font-size:14px}
+.cui .linkbtn:hover{color:var(--lamp)}
+.cui .crules{max-height:46vh;overflow:auto;background:rgba(14,10,7,.85);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.cui .arrow{position:absolute;top:44%;width:54px;height:54px;border-radius:50%;background:rgba(26,18,12,.72);border:1px solid var(--line);color:var(--fg);font:400 30px/1 var(--f-display);display:grid;place-items:center;padding:0 0 4px}
+.cui .arrow:hover{border-color:var(--lamp);color:var(--lamp)}
+.cui .arrow.prev{left:clamp(12px,3vw,40px)}.cui .arrow.next{left:calc(58vw - 80px)}
+.cui .strip{position:absolute;left:0;right:0;bottom:16px;display:flex;justify-content:center;gap:8px;padding:4px 16px;overflow-x:auto}
+.cui .thumb{flex:0 0 auto;width:66px;height:74px;border-radius:10px;border:1.5px solid var(--line);background:#1a120c;overflow:hidden;padding:0;opacity:.7;position:relative;transition:opacity .15s,transform .15s}
+.cui .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.cui .thumb:hover{opacity:1;transform:translateY(-2px)}
+.cui .thumb.sel{border-color:var(--lamp);box-shadow:0 0 0 2px var(--lamp);opacity:1}
+.cui .thumb.taken{opacity:.28}
+.cui .thumb.taken::after{content:'✕';position:absolute;inset:0;display:grid;place-items:center;font-size:24px;color:var(--fg)}
+@media (max-width:760px), (max-aspect-ratio:4/5){
+  .csel .shade{background:linear-gradient(0deg,rgba(14,10,7,.97) 40%,rgba(14,10,7,.6) 55%,rgba(14,10,7,0) 68%)}
+  .cui .info{left:16px;right:16px;width:auto;top:auto;bottom:104px;transform:none;gap:10px}
+  .cui .info.home{width:auto;transform:none;top:34vh;bottom:96px;max-height:none;padding:4px 2px}
+  .csel.home .cui .arrow{top:calc(17vh - 23px)}
+  .csel.home .shade{background:linear-gradient(0deg,rgba(14,10,7,.97) 62%,rgba(14,10,7,.5) 68%,rgba(14,10,7,0) 74%)}
+  .cui .cols2{grid-template-columns:1fr}
+  .cui .cname{font-size:clamp(42px,12vw,64px)}
+  .cui .blurb{font-size:15px}
+  .cui .arrow{top:28%;width:46px;height:46px}.cui .arrow.next{left:auto;right:12px}
+  .cui .thumb{width:52px;height:58px}
+  .cui .strip{justify-content:flex-start}
+}
+.rulebook{display:grid;gap:6px;font-size:14px;line-height:1.5}
+.rulebook h4{margin:10px 0 0;font:700 11px var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--lamp)}
+.rulebook h4:first-child{margin-top:0}
+.rulebook p{margin:0}
+.rulebook ol,.rulebook ul{margin:0;padding-left:20px;display:grid;gap:4px}
+.rulebook ul ul{margin-top:4px}
+.rulebook b{color:var(--paper)}
+.rulebook .ranks{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px}
+.rulebook .ranks b{color:var(--lamp);white-space:nowrap}
+.rtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;position:sticky;top:-12px;background:rgba(14,10,7,.96);padding:6px 0}
+.rtab{background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:5px 12px;color:var(--muted);font-size:13px}
+.rtab.on{border-color:var(--lamp);color:var(--lamp)}
 .redflash{position:fixed;inset:0;background:var(--blood);opacity:0;pointer-events:none;z-index:9}
 .redflash.on{animation:rf 1.2s ease-out}
 @keyframes rf{0%{opacity:.75}100%{opacity:0}}
 @media (max-width:620px){
-  .portraits{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .portrait .cap span{display:none}
   kbd{display:none}
   .hide-sm{display:none}
 }
@@ -227,6 +277,7 @@ details summary{cursor:pointer;font-weight:700}
 <div class="redflash" id="redflash"></div>
 <div class="goldflash" id="goldflash"></div>
 <div id="hud"></div>
+<div class="csel" id="csel" hidden><canvas id="cselStage" aria-hidden="true"></canvas><div class="shade"></div><div class="cui" id="cselUI"></div></div>
 <div class="volpanel" id="volpanel" hidden>
   <label for="volMusic"><span>Music</span><input type="range" id="volMusic" min="0" max="100" step="1"><output id="volMusicOut"></output></label>
   <label for="volSfx"><span>Effects</span><input type="range" id="volSfx" min="0" max="100" step="1"><output id="volSfxOut"></output></label>
@@ -235,14 +286,15 @@ details summary{cursor:pointer;font-weight:700}
 
 <script src="assets/vendor/three.min.js"></script>
 <script src="assets/vendor/mqtt.min.js"></script>
-<script src="engine.js"></script>
-<script src="game.js"></script>
-<script src="liars.js"></script>
-<script src="room.js"></script>
-<script src="fx.js"></script>
-<script src="scene.js"></script>
-<script src="audio.js"></script>
-<script src="net.js"></script>
+<!-- ?v= busts browser caches (GitHub Pages caches ~10 min): bump it on every release so no one runs a mix of old and new files -->
+<script src="engine.js?v=20261015k"></script>
+<script src="game.js?v=20261015k"></script>
+<script src="liars.js?v=20261015k"></script>
+<script src="room.js?v=20261015k"></script>
+<script src="fx.js?v=20261015k"></script>
+<script src="scene.js?v=20261015k"></script>
+<script src="audio.js?v=20261015k"></script>
+<script src="net.js?v=20261015k"></script>
 <script>
 (() => {
 const E = window.PokerEngine, CH = PokerScene.CHARACTERS, NET = window.PokerNet;
@@ -270,7 +322,7 @@ PokerAudio.bindUnlock(audio);
    mode 'guest': this browser renders the state the host sends. */
 let session = null;        // {mode, net, game?, S?, seat, room, gameId}
 let lobbyStop = null, lobbyRooms = [], lobbyStatus = 'connecting', joinCode = '', notice = '';
-let viewer = null, sw = null, logOpen = false, boardOpen = false, pickerOpen = false;
+let viewer = null, sw = null, logOpen = false, boardOpen = false;
 
 const card2d = (c, cls = '', attrs = '') => {
   if (!c || c.hidden) return `<div class="card2d empty ${cls}"></div>`;
@@ -278,63 +330,244 @@ const card2d = (c, cls = '', attrs = '') => {
   return `<div class="card2d ${red ? 'red' : ''} ${cls}" ${attrs} aria-label="${E.rankLabel(c.r)}${E.SUITS[c.s]}"><span class="r">${E.rankLabel(c.r)}</span><span class="s">${E.SUITS[c.s]}</span></div>`;
 };
 const bulletsHTML = n => `<span class="bullets" aria-label="${n} of 6 bullets">${'●'.repeat(n)}<span class="emp">${'○'.repeat(Math.max(0, 6 - n))}</span></span>`;
-const portraitBtn = (k, {sel, taken, data = ''} = {}) => {
-  const c = CH[k];
-  return `<button class="portrait ${sel ? 'sel' : ''} ${taken ? 'taken' : ''}" ${data} ${taken ? 'disabled' : ''} role="radio" aria-checked="${!!sel}">
-    ${portraits[k] ? `<img src="${portraits[k]}" alt="${c.animal}">` : `<div class="ph">${c.animal[0]}</div>`}
-    <div class="cap"><b>${c.name}</b><span>${taken ? 'Taken' : c.animal + '. ' + c.blurb}</span></div></button>`;
-};
 const onClick = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = () => { audio.unlock(); audio.play('ui'); fn(); }; };
 const inviteLink = code => location.origin + location.pathname + '#' + code;
 
 /* ---------- screen 1: profile (name + character) ---------- */
-function renderProfile(){
-  $hud.innerHTML = '';
-  $ov.innerHTML = `<div class="overlay dim"><div class="panel">
-    <div><h1>Bullet Poker</h1><p class="sub">Bluff or bleed. Bullet Poker, Liar's Deck and Liar's Dice, played with a six-chamber revolver. Last one standing wins.</p></div>
-    ${scene3d ? '' : '<p class="sub" style="color:var(--blood)">This browser could not start WebGL, so the 3D table cannot be drawn.</p>'}
-    <label class="field"><span class="label">Your name</span><input type="text" id="pName" maxlength="14" placeholder="e.g. Nam" value="${esc(profile.name)}" autocomplete="nickname"></label>
-    <div><span class="label">Your character</span>
-      <div class="portraits" role="radiogroup" aria-label="Character">${Object.keys(CH).map(k => portraitBtn(k, {sel: profile.animal === k, data: `data-a="${k}"`})).join('')}</div></div>
-    <div class="row" style="justify-content:flex-start"><button class="btn" id="toLobby">Enter the bar</button>${notice ? `<span class="sub" style="color:var(--blood)">${esc(notice)}</span>` : ''}</div>
-    <details><summary>How to play</summary>${Object.keys(RULES).map(m => `<h3 style="margin:12px 0 6px">${MODE_INFO[m].name}</h3>${RULES[m]}`).join('')}</details>
-  </div></div>`;
+// The profile screen is now part of the home screen (character select + lobby).
+function renderProfile(){ showLobby(); }
+
+/* ---------- full-screen character select (profile, and "Change character" in a room) ---------- */
+// A live 3D stage (PokerScene.createShowcase) with the name, blurb and choices over it.
+// ←/→, swipe, the arrows or the strip change character; Enter confirms; Escape backs out (room).
+const KEYS = Object.keys(CH);
+const $csel = document.getElementById('csel'), $cui = document.getElementById('cselUI');
+let csel = null, showcase = null, rulesMode = 'poker';
+const narrowSelect = () => matchMedia('(max-width:760px), (max-aspect-ratio:4/5)').matches;
+function layoutShowcase(){
+  if (!showcase) return;
+  const home = csel && csel.mode === 'home';
+  if (!narrowSelect()) showcase.setOffset(-0.2, 0);
+  else if (home) showcase.setOffset(0, -0.33, 0.5); // phone home: a small figure in the top third, the lobby below
+  else showcase.setOffset(0, -0.13);
+}
+function openSelect(o){
+  csel = Object.assign({taken: new Set()}, o); csel.index = Math.max(0, KEYS.indexOf(o.current));
+  const home = csel.mode === 'home'; // home = character + name + lobby; 'room' = change character at a table
+  $csel.hidden = false; $csel.classList.toggle('home', home);
+  if (!showcase) { try { showcase = PokerScene.createShowcase(document.getElementById('cselStage')); } catch (e) { console.error(e); } }
+  layoutShowcase(); if (showcase) showcase.start();
+  if (scene3d) scene3d.setPaused(true);
+  $cui.innerHTML = `
+    <div class="top"><div class="brand">${home ? 'Bullet Poker' : 'Choose your character'}</div>${home ? '' : '<button class="btn ghost small" id="cBack">Back</button>'}</div>
+    <button class="arrow prev" id="cPrev" aria-label="Previous character">‹</button>
+    <button class="arrow next" id="cNext" aria-label="Next character">›</button>
+    <div class="info ${home ? 'home' : ''}">
+      <div class="idx" id="cIdx"></div>
+      <div id="cHead"></div>
+      <p class="blurb" id="cBlurb"></p>
+      <p class="note" id="cTaken" hidden>Someone at this table already plays this one.</p>
+      ${home ? `<label class="field"><span class="label">Your name</span><input type="text" id="pName" maxlength="14" placeholder="e.g. Nam" value="${esc(profile.name)}" autocomplete="nickname"></label>
+      ${!scene3d ? '<p class="note">This browser could not start WebGL, so the 3D table cannot be drawn.</p>' : ''}
+      <p class="note" id="cNotice" ${notice ? '' : 'hidden'} role="alert">${esc(notice)}</p>
+      <div class="lob">
+        <section><div class="row" style="justify-content:space-between"><h3>Open tables</h3><span class="sub" style="font-size:12px" id="lobbyStatus" aria-live="polite"></span></div>
+          <div class="rooms" id="roomList"></div></section>
+        <div class="cols2">
+          <section><h3>Host a table</h3>
+            <label class="field"><span class="label">Table name</span><input type="text" id="rName" maxlength="24" placeholder="${esc(profile.name || 'My')}'s table" value="${esc(roomPrefs.name)}"></label>
+            <label class="check"><input type="checkbox" id="rPublic" ${roomPrefs.isPublic ? 'checked' : ''}> Show in the open tables list</label>
+            <button class="btn" id="host">Host</button></section>
+          <section><h3>Join with a code</h3>
+            <label class="field"><span class="label">Table code</span><input type="text" id="jCode" maxlength="8" placeholder="e.g. K7Q2M" value="${esc(joinCode)}" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:.2em"></label>
+            <button class="btn" id="join">Join</button></section>
+        </div>
+      </div>
+      <button class="linkbtn" id="cRules" aria-expanded="false">How to play</button>
+      <div class="crules" id="cRulesBox" hidden>
+        <div class="rtabs" role="tablist">${Object.keys(RULES).map(m => `<button class="rtab ${m === rulesMode ? 'on' : ''}" role="tab" aria-selected="${m === rulesMode}" data-rules="${m}">${MODE_INFO[m].name}</button>`).join('')}</div>
+        <div id="cRulesBody">${RULES[rulesMode]}</div></div>`
+      : `<div class="actions"><button class="btn" id="cGo">Play as this one</button></div>`}
+    </div>
+    <div class="strip" role="radiogroup" aria-label="Character">${KEYS.map((k, i) => `<button class="thumb" data-i="${i}" role="radio" aria-label="${CH[k].name}, ${CH[k].animal}">${portraits[k] ? `<img src="${portraits[k]}" alt="">` : esc(CH[k].name[0])}</button>`).join('')}</div>`;
   const nameEl = document.getElementById('pName');
-  nameEl.oninput = () => { profile.name = nameEl.value; saveProfile(); };
-  $ov.querySelectorAll('.portrait').forEach(el => el.onclick = () => { profile.animal = el.dataset.a; saveProfile(); audio.unlock(); audio.play('ui'); renderProfile(); });
-  onClick('toLobby', () => {
-    if (!profile.name.trim()) { notice = 'Pick a name first.'; nameEl.focus(); return renderProfile(); }
-    notice = ''; showLobby();
+  if (nameEl) nameEl.oninput = () => { profile.name = nameEl.value; saveProfile(); selectNotice(''); const rn = document.getElementById('rName'); if (rn) rn.placeholder = `${profile.name || 'My'}'s table`; };
+  if (home) {
+    document.getElementById('rName').oninput = e => roomPrefs.name = e.target.value;
+    document.getElementById('rPublic').onchange = e => roomPrefs.isPublic = e.target.checked;
+    document.getElementById('jCode').oninput = e => joinCode = NET.cleanCode(e.target.value);
+    onClick('host', hostTable);
+    onClick('join', () => joinCode ? joinTable(joinCode) : (selectNotice('Type a table code first.'), document.getElementById('jCode').focus()));
+    updateRoomList();
+  }
+  onClick('cPrev', () => stepSelect(-1)); onClick('cNext', () => stepSelect(1));
+  onClick('cGo', confirmSelect);
+  onClick('cBack', () => { const c = csel; closeSelect(); c && c.onClose && c.onClose(); });
+  $cui.querySelectorAll('[data-rules]').forEach(el => el.onclick = () => {
+    rulesMode = el.dataset.rules; audio.play('ui');
+    $cui.querySelectorAll('[data-rules]').forEach(b => { b.classList.toggle('on', b === el); b.setAttribute('aria-selected', String(b === el)); });
+    document.getElementById('cRulesBody').innerHTML = RULES[rulesMode]; document.getElementById('cRulesBox').scrollTop = 0;
+  });
+  onClick('cRules', () => { const b = document.getElementById('cRulesBox'), t = document.getElementById('cRules'); b.hidden = !b.hidden; t.setAttribute('aria-expanded', String(!b.hidden)); });
+  $cui.querySelectorAll('.thumb[data-i]').forEach(el => el.onclick = () => { audio.unlock(); csel.index = +el.dataset.i; audio.play('flick'); renderSelect(); });
+  renderSelect();
+}
+function renderSelect(){
+  if (!csel) return;
+  const k = KEYS[csel.index], c = CH[k], taken = csel.taken.has(k);
+  if (showcase) showcase.show(k);
+  if (csel.mode === 'home' && profile.animal !== k) { profile.animal = k; saveProfile(); } // home: picking is choosing
+  document.getElementById('cIdx').textContent = `${String(csel.index + 1).padStart(2, '0')} / ${String(KEYS.length).padStart(2, '0')}`;
+  document.getElementById('cHead').innerHTML = `<div class="cname">${esc(c.name)}</div><div class="species">${esc(c.animal)}</div>`;
+  document.getElementById('cBlurb').textContent = c.blurb;
+  document.getElementById('cTaken').hidden = !taken;
+  const go = document.getElementById('cGo'); if (go) go.disabled = taken;
+  $cui.querySelectorAll('.thumb[data-i]').forEach(el => {
+    const i = +el.dataset.i, on = i === csel.index;
+    el.classList.toggle('sel', on); el.classList.toggle('taken', csel.taken.has(KEYS[i]) && !on);
+    el.setAttribute('aria-checked', String(on));
+    if (on) el.scrollIntoView({block: 'nearest', inline: 'nearest'});
   });
 }
-const RULES_POKER = `<ol class="rules">
-  <li>2–4 players, each on their own device. One player hosts a table; the others join it.</li>
-  <li>Every hand, each player starts with <b>1 bullet</b> loaded. Two hole cards, five community cards, four betting rounds.</li>
-  <li><b>Call</b> matches the highest load. <b>Raise</b> adds 1 bullet. <b>All-in</b> goes straight to 6.</li>
-  <li><b>Fold</b> and you pull the trigger right away with what you loaded. Lose the showdown and you pull it too. The winner is safe.</li>
-  <li>With k bullets the chance of death is k/6. Load all 6 and there is still a <b>5% God Save</b>.</li>
-  <li><b>Coward's Fold</b> (once per match): fold and take only 1 bullet.</li>
-  <li><b>Switch</b> (once per match): swap a hole card for one of 4 / 3 / 2 offered cards (pre-flop / flop / turn). No All-in on that turn.</li>
-  <li>Keys: <b>F</b> fold, <b>C</b> check/call, <b>R</b> raise, <b>A</b> all-in, <b>S</b> switch, <b>B</b> board view, <b>M</b> change music.</li>
-</ol>`;
+function stepSelect(d){ if (!csel) return; csel.index = (csel.index + d + KEYS.length) % KEYS.length; audio.play('flick'); renderSelect(); }
+function confirmSelect(){
+  if (!csel || csel.mode === 'home') return;
+  const k = KEYS[csel.index];
+  if (csel.taken.has(k)) return;
+  audio.play('clink');
+  const c = csel;
+  if (c.onConfirm(k) !== false && csel === c) closeSelect();
+}
+function selectNotice(t){ const n = document.getElementById('cNotice'); if (n) { n.textContent = t; n.hidden = !t; } }
+function updateTaken(t){ if (csel) { csel.taken = t; renderSelect(); } }
+function closeSelect(){ csel = null; $csel.hidden = true; $cui.innerHTML = ''; if (showcase) showcase.stop(); if (scene3d) scene3d.setPaused(false); }
+document.addEventListener('keydown', e => {
+  if (!csel) return;
+  if (e.target && e.target.matches && e.target.matches('input,textarea')) {
+    if (e.key === 'Enter' && csel.mode === 'home') { if (e.target.id === 'jCode') document.getElementById('join').click(); else if (e.target.id === 'rName') document.getElementById('host').click(); }
+    return;
+  }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); stepSelect(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); stepSelect(1); }
+  else if (e.key === 'Enter' && !(e.target && e.target.closest && e.target.closest('button'))) { e.preventDefault(); confirmSelect(); }
+  else if (e.key === 'Escape' && csel.mode !== 'home') { const c = csel; closeSelect(); c.onClose && c.onClose(); }
+}, true);
+// swipe across the stage to change character
+{ let x0 = null; const st = document.getElementById('cselStage');
+  st.addEventListener('pointerdown', e => { x0 = e.clientX; });
+  st.addEventListener('pointerup', e => { if (x0 != null && Math.abs(e.clientX - x0) > 50) stepSelect(e.clientX < x0 ? 1 : -1); x0 = null; }); }
+window.addEventListener('resize', () => { if (csel) layoutShowcase(); });
+
+// How to play: one rulebook per mode, written from game.js / liars.js (keep them in step).
+const RULES_POKER = `<div class="rulebook">
+  <h4>Goal</h4>
+  <p>Texas Hold'em, but you bet <b>bullets</b> instead of chips, and losing means pulling the trigger. Be the <b>last player alive</b>. 2–4 players, each on their own device.</p>
+  <h4>A hand, step by step</h4>
+  <ol>
+    <li>Everyone still alive starts the hand with <b>1 bullet loaded</b> (the ante). The dealer button moves one seat to the left each hand.</li>
+    <li>Each player gets <b>2 hole cards</b> that only they can see.</li>
+    <li>Four betting rounds: <b>pre-flop</b>, then the <b>flop</b> (3 shared cards), the <b>turn</b> (1 more) and the <b>river</b> (1 more). Each round starts with the player left of the dealer.</li>
+    <li>A betting round ends when everyone still in has acted and has the same number of bullets loaded.</li>
+    <li><b>Showdown:</b> the players still in reveal their cards. Each makes the best 5-card hand from their 2 cards plus the 5 shared ones. The best hand is <b>safe</b>; every other player still in <b>pulls the trigger</b> with all the bullets they loaded. Tied best hands are all safe.</li>
+    <li>If everyone else folds, the last player in wins the hand without a showdown and is safe.</li>
+  </ol>
+  <h4>Your actions</h4>
+  <ul>
+    <li><b>Check</b>: when you already match the highest load, pass.</li>
+    <li><b>Call</b>: load bullets until you match the highest load at the table.</li>
+    <li><b>Raise</b>: load 1 bullet more than the highest load. Everyone else must answer again.</li>
+    <li><b>All-in</b>: go straight to <b>6 bullets</b>, a full cylinder. Everyone must call 6 or fold.</li>
+    <li><b>Fold</b>: give up the hand and <b>pull the trigger right away</b> with the bullets you have loaded. Folding is not free: you only escape bullets you never loaded.</li>
+  </ul>
+  <h4>The gun</h4>
+  <ul>
+    <li>A six-chamber revolver. With <b>k bullets</b> loaded, the chance of death is <b>k in 6</b>: 1 bullet is 17%, 3 bullets 50%, 5 bullets 83%.</li>
+    <li>With all <b>6 loaded</b> you are not quite dead: there is a <b>5% God Save</b>, when the hammer falls on nothing.</li>
+    <li>The bullets you see in front of a player are what they would load. The risk line under your buttons shows your odds for folding and for calling and losing.</li>
+  </ul>
+  <h4>Once per match</h4>
+  <ul>
+    <li><b>Coward's Fold</b>: fold and take only <b>1 bullet</b>, however many you had loaded (only when you have more than 1 loaded).</li>
+    <li><b>Switch</b>: on your turn before the river, see <b>4 / 3 / 2</b> new cards (pre-flop / flop / turn) and swap one of your hole cards for one of them, or keep yours. You can't go All-in on the turn you Switch.</li>
+  </ul>
+  <h4>Hand rankings (best first)</h4>
+  <div class="ranks">
+    <b>Royal Flush</b><span>A K Q J 10, all one suit</span>
+    <b>Straight Flush</b><span>five in a row, one suit</span>
+    <b>Four of a Kind</b><span>four cards of one rank</span>
+    <b>Full House</b><span>three of a kind plus a pair</span>
+    <b>Flush</b><span>any five of one suit</span>
+    <b>Straight</b><span>five in a row, mixed suits (A can be low: A 2 3 4 5)</span>
+    <b>Three of a Kind</b><span>three cards of one rank</span>
+    <b>Two Pair</b><span>two different pairs</span>
+    <b>Pair</b><span>two cards of one rank</span>
+    <b>High Card</b><span>none of the above: highest card wins</span>
+  </div>
+  <h4>Tips</h4>
+  <ul>
+    <li>Every bullet you load stays loaded until the hand ends. Fold early if your cards are bad: it only costs the ante.</li>
+    <li>An All-in from someone with a weak table is often a bluff. Calling it can cost you a full cylinder.</li>
+  </ul>
+  <h4>Keys</h4>
+  <p><b>F</b> fold · <b>C</b> check / call · <b>R</b> raise · <b>A</b> all-in · <b>S</b> switch · <b>B</b> board view · <b>M</b> music</p>
+</div>`;
 const RULES = {
   poker: RULES_POKER,
-  deck: `<ol class="rules">
-  <li>20 cards: 6 Kings, 6 Queens, 6 Aces and 2 <b>Jokers</b> (wild). Everyone gets 5. Each round names a <b>table card</b>: Kings, Queens or Aces.</li>
-  <li>On your turn, play <b>1–3 cards face down</b> and claim they are all the table card. Lie if you have to.</li>
-  <li>Or call <b>LIAR!</b> on the player before you. Their cards flip: if any is not the table card or a Joker, they lied and pull the trigger. If they told the truth, you pull it.</li>
-  <li>Every player has their own revolver with <b>one round</b> in a random chamber. Each pull moves the cylinder on: 1 in 6, then 1 in 5, ... then certain death.</li>
-  <li>After a Liar call, new cards and a new table card. Last one standing wins.</li>
-  <li>Keys: <b>1–5</b> pick cards, <b>Enter</b> play, <b>L</b> Liar, <b>M</b> change music.</li>
-</ol>`,
-  dice: `<ol class="rules">
-  <li>Everyone has <b>5 dice</b> under a cup. You see only your own. <b>Ones are wild</b>: they count as any face.</li>
-  <li>On your turn, bid how many dice on the whole table show a face, e.g. <b>"four 5s"</b>. Raise the quantity, or keep it and pick a higher face.</li>
-  <li>Or call <b>LIAR!</b> on the last bid. All cups lift: if there are fewer than bid, the bidder pulls the trigger. Otherwise you do.</li>
-  <li>Same revolver as Liar's Deck: one round, and every pull makes the next one likelier.</li>
-  <li>After a Liar call, everyone rolls again. Last one standing wins.</li>
-  <li>Keys: <b>↑ ↓</b> quantity, <b>2–6</b> face, <b>Enter</b> bid, <b>L</b> Liar, <b>M</b> change music.</li>
-</ol>`,
+  deck: `<div class="rulebook">
+  <h4>Goal</h4>
+  <p>A bluffing card game. Play cards face down, claim they are the <b>table card</b>, and catch the liars. Be the <b>last player alive</b>. 2–4 players.</p>
+  <h4>The cards</h4>
+  <p><b>20 cards</b>: 6 Kings, 6 Queens, 6 Aces and 2 <b>Jokers</b>. Jokers are wild: they always count as the table card. Every round, each player gets <b>5 cards</b> and the game names a table card: <b>Kings</b>, <b>Queens</b> or <b>Aces</b>.</p>
+  <h4>A round, step by step</h4>
+  <ol>
+    <li>Players take turns around the table. On your turn you either <b>play</b> or call <b>Liar</b>.</li>
+    <li><b>Play</b>: put <b>1, 2 or 3 cards</b> face down and claim they are all the table card. Nobody sees them. You may lie.</li>
+    <li><b>Liar!</b>: accuse the player who made the <b>last play</b>. Their cards flip over:
+      <ul><li>if <b>any</b> card is neither the table card nor a Joker, they <b>lied</b>, and <b>they</b> pull the trigger;</li>
+      <li>if every card was the table card or a Joker, they told the truth, and <b>you</b> pull the trigger.</li></ul></li>
+    <li>Players with no cards left are skipped. If nobody else has cards, the next player <b>must</b> call Liar.</li>
+    <li>After the shot, all cards are collected, everyone gets 5 new cards and a new table card. The player who pulled the trigger starts the next round (or the next player, if they died).</li>
+  </ol>
+  <h4>The gun</h4>
+  <ul>
+    <li>Every player has their <b>own revolver</b>: 6 chambers with <b>1 live round</b> in a random chamber. Nobody at the table can see where it is.</li>
+    <li>Each pull moves your cylinder on, and it keeps its place between rounds. So your first pull is 1 in 6, then 1 in 5, 1 in 4, ... and the sixth is certain death.</li>
+    <li>The marks under each name show how many pulls that player has used.</li>
+  </ul>
+  <h4>Tips</h4>
+  <ul>
+    <li>Count: there are only 6 of each rank plus 2 Jokers. If you hold four Queens, someone claiming three more is probably lying.</li>
+    <li>Someone near their last chambers can't afford a wrong Liar call. Use it.</li>
+  </ul>
+  <h4>Keys</h4>
+  <p><b>1–5</b> pick cards · <b>Enter</b> play · <b>L</b> Liar · <b>M</b> music</p>
+</div>`,
+  dice: `<div class="rulebook">
+  <h4>Goal</h4>
+  <p>A bluffing dice game. Bid on what is under everyone's cups and catch the liars. Be the <b>last player alive</b>. 2–4 players.</p>
+  <h4>The dice</h4>
+  <p>Every player has <b>5 dice</b> under a cup, rolled fresh each round. You see <b>only your own</b>. <b>Ones are wild</b>: they count as every face.</p>
+  <h4>A round, step by step</h4>
+  <ol>
+    <li>Players take turns around the table. On your turn you either <b>bid</b> or call <b>Liar</b>.</li>
+    <li><b>Bid</b>: claim that <b>at least</b> so many dice on the <b>whole table</b> show one face, e.g. <b>"five 4s"</b>. Faces are <b>2 to 6</b> (ones are wild, so you can't bid them).</li>
+    <li>Each bid must beat the last one: a <b>higher quantity</b> (any face), or the <b>same quantity with a higher face</b>. "Five 4s" can be followed by "five 5s", "five 6s" or "six 2s", but not "four 6s".</li>
+    <li><b>Liar!</b>: challenge the last bid. All cups lift and the dice are counted, ones included:
+      <ul><li>if there are <b>fewer</b> than bid, the <b>bidder</b> lied and pulls the trigger;</li>
+      <li>if there are <b>at least</b> as many, the bid stands and <b>you</b> pull the trigger.</li></ul></li>
+    <li>If no higher bid is possible any more, you must call Liar.</li>
+    <li>After the shot, everyone rolls again. The player who pulled the trigger starts the next round (or the next player, if they died).</li>
+  </ol>
+  <h4>The gun</h4>
+  <p>The same as Liar's Deck: your <b>own revolver</b> with <b>1 live round</b> in 6 chambers. Every pull makes the next one likelier: 1 in 6, 1 in 5, ... until the sixth.</p>
+  <h4>Tips</h4>
+  <ul>
+    <li>On average a third of all dice show any one face once ones are counted (1 in 6 for the face, plus 1 in 6 for wild ones). With 4 players, 20 dice: about 6 or 7 of each face.</li>
+    <li>Your own dice are the only facts you have. Bid on faces you hold.</li>
+  </ul>
+  <h4>Keys</h4>
+  <p><b>↑ ↓</b> quantity · <b>2–6</b> face · <b>Enter</b> bid · <b>L</b> Liar · <b>M</b> music</p>
+</div>`,
 };
 
 /* ---------- screen 2: lobby (open tables, host, join by code) ---------- */
@@ -362,38 +595,22 @@ function updateRoomList(){
   list.querySelectorAll('[data-join]').forEach(el => el.onclick = () => { audio.unlock(); audio.play('ui'); joinTable(el.dataset.join); });
 }
 function renderLobby(){
-  $hud.innerHTML = '';
-  $ov.innerHTML = `<div class="overlay dim"><div class="panel">
-    <div class="row" style="justify-content:space-between">
-      <div class="row" style="justify-content:flex-start;gap:12px">${portraits[profile.animal] ? `<img class="avatar" src="${portraits[profile.animal]}" alt="">` : ''}<div><div class="label">Playing as</div><h2>${esc(profile.name)} · ${CH[profile.animal].name}</h2></div></div>
-      <button class="btn ghost small" id="editProfile">Change</button>
-    </div>
-    <section class="box"><h3>Open tables</h3><p class="sub" style="font-size:13px" id="lobbyStatus" aria-live="polite"></p>
-      <div class="rooms" id="roomList"></div>
-    </section>
-    <div class="cols">
-      <section class="box"><h3>Host a table</h3>
-        <label class="field"><span class="label">Table name</span><input type="text" id="rName" maxlength="24" placeholder="${esc(profile.name)}'s table" value="${esc(roomPrefs.name)}"></label>
-        <label class="check"><input type="checkbox" id="rPublic" ${roomPrefs.isPublic ? 'checked' : ''}> Show in the open tables list</label>
-        <button class="btn" id="host">Host</button></section>
-      <section class="box"><h3>Join with a code</h3>
-        <label class="field"><span class="label">Table code</span><input type="text" id="jCode" maxlength="8" placeholder="e.g. K7Q2M" value="${esc(joinCode)}" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:.2em"></label>
-        <button class="btn" id="join">Join</button></section>
-    </div>
-    ${notice ? `<p class="sub" style="color:var(--blood)">${esc(notice)}</p>` : ''}
-  </div></div>`;
-  document.getElementById('rName').oninput = e => roomPrefs.name = e.target.value;
-  document.getElementById('rPublic').onchange = e => roomPrefs.isPublic = e.target.checked;
-  document.getElementById('jCode').oninput = e => joinCode = NET.cleanCode(e.target.value);
-  onClick('editProfile', () => { notice = ''; renderProfile(); });
-  onClick('host', hostTable);
-  onClick('join', () => joinCode && joinTable(joinCode));
-  updateRoomList();
+  $hud.innerHTML = ''; $ov.innerHTML = '';
+  if (csel && csel.mode === 'home') { selectNotice(notice); updateRoomList(); return; } // already open: don't steal focus
+  openSelect({mode: 'home', current: profile.animal});
+}
+// Hosting and joining need a name: say so on the home screen instead of failing later.
+function needName(){
+  if (profile.name.trim()) return false;
+  notice = 'Pick a name first.'; selectNotice(notice);
+  const n = document.getElementById('pName'); if (n) n.focus();
+  return true;
 }
 
 /* ---------- host / join ---------- */
 function hostTable(){
-  notice = '';
+  if (needName()) return;
+  notice = ''; closeSelect();
   try {
     const net = NET.hostRoom({me: profile, roomName: roomPrefs.name, isPublic: roomPrefs.isPublic, mode: roomPrefs.mode,
       onRoom: room => { if (session && session.net === net) { session.room = room; if (!session.game) renderRoom(); } },
@@ -403,7 +620,8 @@ function hostTable(){
   } catch (e) { notice = e.message; renderLobby(); }
 }
 function joinTable(code){
-  notice = '';
+  if (needName()) return;
+  notice = ''; closeSelect();
   let net;
   try {
     net = NET.joinRoom({code, me: profile,
@@ -455,14 +673,15 @@ function renderRoom(){
     }).join('')}</div>
     <div><span class="label">Game</span><div class="modes" role="radiogroup" aria-label="Game mode">${NET.MODES.map(m => `<button class="modebtn ${r.mode === m ? 'sel' : ''}" data-mode="${m}" role="radio" aria-checked="${r.mode === m}" ${isHost ? '' : 'disabled'}><b>${MODE_INFO[m].name}</b><span>${MODE_INFO[m].blurb}</span></button>`).join('')}</div>
       <details style="margin-top:8px"><summary>How to play ${MODE_INFO[r.mode].name}</summary>${RULES[r.mode]}</details></div>
-    ${me ? `<details id="picker" ${pickerOpen ? 'open' : ''}><summary>Change character</summary><div class="portraits" style="margin-top:10px">${Object.keys(CH).map(k => portraitBtn(k, {sel: me.animal === k, taken: taken.has(k), data: `data-pick="${k}"`})).join('')}</div></details>` : ''}
+    ${me ? `<div class="row" style="justify-content:flex-start"><button class="btn ghost small" id="changeChar">Change character</button><span class="sub" style="font-size:13px">You are ${esc(CH[me.animal].name)}, the ${esc(CH[me.animal].animal.toLowerCase())}.</span></div>` : ''}
     <div class="row" style="justify-content:flex-start">
       ${isHost ? `<button class="btn" id="start" ${canStart ? '' : 'disabled'}>Start game (${r.seats.length} player${r.seats.length === 1 ? '' : 's'})</button>` : ''}
       <button class="btn ghost" id="leave">${isHost ? 'Close table' : 'Leave'}</button>
       <span class="sub" style="font-size:13px">${isHost ? (canStart ? 'Everyone in? Start when ready.' : 'Waiting for at least one more player. Share the code or the link.') : 'Waiting for the host to start...'}</span>
     </div>
   </div></div>`;
-  const pk = document.getElementById('picker'); if (pk) pk.ontoggle = () => { pickerOpen = pk.open; };
+  onClick('changeChar', () => openSelect({mode: 'room', current: me.animal, taken, onConfirm(k) { if (k !== me.animal) session.net.pickAnimal(k); }}));
+  if (csel && csel.mode === 'room') updateTaken(taken); // someone else picked while the select is open
   onClick('copy', () => {
     const el = document.getElementById('invite'), btn = document.getElementById('copy');
     const done = () => { btn.textContent = 'Copied'; }, manual = () => { el.select(); btn.textContent = 'Press Ctrl/Cmd+C'; };
@@ -475,10 +694,7 @@ function renderRoom(){
     try { localStorage.setItem('bp-mode', roomPrefs.mode); } catch {}
     session.net.setMode(el.dataset.mode);
   });
-  $ov.querySelectorAll('[data-pick]').forEach(el => el.onclick = () => {
-    audio.play('ui');
-    session.net.pickAnimal(el.dataset.pick);
-  });
+
 }
 
 /* ---------- running a game ---------- */
@@ -487,6 +703,7 @@ function startHostedGame(){
   const seats = net.seatsForGame();
   const make = {poker: PokerGame.createGame, deck: LiarsGame.createDeck, dice: LiarsGame.createDice}[net.mode];
   const game = make(seats, S => { net.pushState(S); render(); }, {onEvent: (t, d, S) => { net.pushEvent(t, d); onEvent(t, d, S); }});
+  closeSelect();
   session.game = game; session.inGame = true; viewer = 0; sw = null; turnKey = '';
   net.attach(game);
   $ov.innerHTML = '';
@@ -496,6 +713,7 @@ function startHostedGame(){
 function onGuestState(S, seat){
   if (!session) return;
   const fresh = session.gameId !== S.gameId;
+  if (!session.inGame) closeSelect();
   session.S = S; session.seat = seat; session.inGame = true; viewer = seat;
   if (fresh) { session.gameId = S.gameId; sw = null; turnKey = ''; boardOpen = false; $ov.innerHTML = ''; if (scene3d) { scene3d.setBoardView(false); scene3d.setup(S.players); } }
   render();
@@ -851,7 +1069,7 @@ window.addEventListener('beforeunload', () => { if (session && session.mode === 
 window.__bp = {get session() { return session; }}; // debug hook for automated tests
 const hashCode = NET.cleanCode(location.hash.slice(1));
 if (hashCode) joinCode = hashCode;
-if (profile.name.trim()) { if (hashCode) { showLobby(); joinTable(hashCode); } else showLobby(); }
-else { if (hashCode) notice = `Pick a name and character to join table ${hashCode}.`; renderProfile(); }
+if (hashCode && profile.name.trim()) { showLobby(); joinTable(hashCode); }
+else { if (hashCode) notice = `Pick a name and character, then press Join to sit at table ${hashCode}.`; showLobby(); }
 })();
 </script>

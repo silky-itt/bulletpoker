@@ -20,6 +20,18 @@ const CHARACTERS = {
   bull: {name: 'Tank',    animal: 'Bull',      blurb: 'Aggressive. Raises at every chance.',
          body: 0x2f2a28, head: 0x3a3330, snout: 0x8a7468, ear: 'horn', snoutShape: 'box', nose: 'ring', acc: 'ring', accColor: 0xd4a73c,
          shirt: 0xd8d0c2, coat: 0x2b211c, coatStyle: 'jacket', sleeve: 0x2b211c, paw: 0x2a2422, extra: 'scar'},
+  rabbit: {name: 'Pip',   animal: 'Rabbit',    blurb: 'Nervous. Counts the odds twice, then folds.',
+         body: 0xd8d0c4, head: 0xece6dc, snout: 0xf6f1ea, ear: 'long', snoutShape: 'cheeks', nose: 'pink', acc: 'glasses', accColor: 0x3a3028,
+         shirt: 0x9ab4c8, coat: 0xb8902a, coatStyle: 'vest', sleeve: 0x9ab4c8, paw: 0xece6dc, extra: 'teeth', whiskers: true},
+  cat:  {name: 'Smokey',  animal: 'Cat',       blurb: 'Cool. Never blinks first.',
+         body: 0x6a6a72, head: 0x7c7c86, snout: 0xe8e4dc, ear: 'cat', snoutShape: 'cheeks', nose: 'pink', acc: 'beret', accColor: 0x8a1e24,
+         shirt: 0x1c1c22, sleeve: 0x1c1c22, paw: 0x7c7c86, extra: 'turtleneck', whiskers: true},
+  croc: {name: 'Snap',    animal: 'Crocodile', blurb: 'Patient. Waits for the kill.',
+         body: 0x4a6a34, head: 0x557a3c, snout: 0x628a44, ear: 'none', snoutShape: 'long', nose: 'nubs', acc: 'fedora', accColor: 0x2a2622,
+         shirt: 0xe8e2d4, coat: 0x23283a, coatStyle: 'jacket', sleeve: 0x23283a, paw: 0x557a3c, extra: 'tie', eyeY: 0.15, eyeZ: -0.17},
+  owl:  {name: 'Hoot',    animal: 'Owl',       blurb: 'Calculating. Remembers every card.',
+         body: 0x7a5a3a, head: 0x8a6a46, snout: 0xd8c09a, ear: 'tuft', snoutShape: 'beak', nose: 'none', acc: 'monocle', accColor: 0xd4a73c,
+         shirt: 0xe9dcc2, coat: 0x6a5a40, coatStyle: 'jacket', sleeve: 0x6a5a40, paw: 0xd8a040, extra: 'disc', eyeR: 0.082, eyeX: 0.112, eyeZ: -0.21},
 };
 const TABLE_R = 1.9, SEAT_R = 2.75, CARD_R = 1.35, EYE_H = 1.62, TOP = 0.955;
 // Deal timing in seconds, shared with the deal sound (index.html): riffle, then one card per gap.
@@ -159,6 +171,11 @@ function makeAnimal(kind) {
     const hem = new T.Mesh(new T.TorusGeometry(torsoR(0.06) * 1.01, 0.03, 8, 28), toon(0x234644)); hem.rotation.x = Math.PI / 2; hem.position.y = 0.06; fig.add(hem);
     for (const y of [0.46, 0.53]) { const band = noInk(new T.Mesh(new T.TorusGeometry(torsoR(y) * 1.005, 0.014, 6, 32), toon(0xe9dcc2))); band.rotation.x = Math.PI / 2; band.position.y = y; fig.add(band); }
   }
+  if (a.extra === 'turtleneck') { const roll = new T.Mesh(new T.TorusGeometry(0.16, 0.06, 8, 22), toon(a.shirt)); roll.rotation.x = Math.PI / 2; roll.position.y = 0.8; fig.add(roll); }
+  if (a.extra === 'tie') {
+    const tie = new T.Mesh(new T.BoxGeometry(0.07, 0.32, 0.02), toon(0x8a1e24)); tie.position.set(0, 0.6, -0.345); tie.rotation.x = 0.12; fig.add(tie);
+    const knot = new T.Mesh(new T.BoxGeometry(0.06, 0.05, 0.03), toon(0x8a1e24)); knot.position.set(0, 0.77, -0.31); fig.add(knot);
+  }
   const head = new T.Group(); head.position.y = 0.98; fig.add(head);
   head.add(new T.Mesh(new T.SphereGeometry(0.27, 24, 18), fur));
 
@@ -168,39 +185,56 @@ function makeAnimal(kind) {
     const s = new T.Mesh(new T.ConeGeometry(0.11, 0.3, 14), toon(a.snout)); s.rotation.x = -Math.PI / 2; s.position.set(0, -0.05, -0.33); head.add(s); snoutTipZ = -0.48;
   } else if (a.snoutShape === 'disk') {
     const s = new T.Mesh(new T.CylinderGeometry(0.1, 0.1, 0.1, 18), toon(a.snout)); s.rotation.x = Math.PI / 2; s.position.set(0, -0.05, -0.27); head.add(s); snoutTipZ = -0.32;
+  } else if (a.snoutShape === 'cheeks') { // cat / rabbit: two puffy cheeks under a little nose
+    for (const x of [-0.045, 0.045]) { const s = new T.Mesh(new T.SphereGeometry(0.068, 14, 10), toon(a.snout)); s.scale.set(1, 0.85, 0.8); s.position.set(x, -0.085, -0.22); head.add(s); }
+    snoutTipZ = -0.285;
+  } else if (a.snoutShape === 'long') { // crocodile: a long flat snout lined with teeth
+    const s = new T.Mesh(new T.BoxGeometry(0.22, 0.11, 0.42), toon(a.snout)); s.position.set(0, -0.08, -0.37); head.add(s); snoutTipZ = -0.58;
+    const tooth = toon(0xf2ecd8);
+    for (const x of [-0.1, 0.1]) for (let i = 0; i < 6; i++) { const t = noInk(new T.Mesh(new T.ConeGeometry(0.012, 0.035, 5), tooth)); t.rotation.x = Math.PI; t.position.set(x, -0.15, -0.24 - i * 0.06); head.add(t); }
+  } else if (a.snoutShape === 'beak') { // owl: a hooked beak pointing down
+    const s = new T.Mesh(new T.ConeGeometry(0.045, 0.14, 10), toon(0xe0a030)); s.rotation.x = -2.5; s.position.set(0, -0.04, -0.28); head.add(s); snoutTipZ = -0.32;
   } else {
     const s = new T.Mesh(new T.BoxGeometry(0.22, 0.15, 0.17), toon(a.snout)); s.position.set(0, -0.07, -0.26); head.add(s); snoutTipZ = -0.345;
   }
+  if (a.extra === 'disc') { const d = new T.Mesh(new T.SphereGeometry(0.21, 20, 14), toon(a.snout)); d.scale.set(1, 0.95, 0.4); d.position.set(0, 0.04, -0.16); head.add(d); } // owl's facial disc
   const dark = std(0x141010, 0.35);
   if (a.nose === 'tip') { const n = new T.Mesh(new T.SphereGeometry(0.032, 10, 8), dark); n.position.set(0, -0.05, snoutTipZ); head.add(noInk(n)); }
   if (a.nose === 'big') { const n = new T.Mesh(new T.SphereGeometry(0.05, 12, 8), dark); n.scale.set(1.3, 0.8, 0.8); n.position.set(0, -0.02, snoutTipZ); head.add(n); }
   if (a.nose === 'nostrils' || a.nose === 'ring') {
     for (const s of [-1, 1]) { const n = new T.Mesh(new T.CylinderGeometry(0.018, 0.018, 0.02, 8), dark); n.rotation.x = Math.PI / 2; n.position.set(s * 0.035, -0.05, snoutTipZ - 0.002); head.add(noInk(n)); }
   }
+  if (a.nose === 'pink') { const n = new T.Mesh(new T.SphereGeometry(0.024, 10, 8), toon(0xe07a8a)); n.scale.set(1.3, 0.8, 0.8); n.position.set(0, -0.04, snoutTipZ + 0.01); head.add(noInk(n)); }
+  if (a.nose === 'nubs') for (const x of [-0.04, 0.04]) { const n = new T.Mesh(new T.SphereGeometry(0.02, 8, 6), toon(a.snout)); n.position.set(x, -0.02, snoutTipZ + 0.03); head.add(noInk(n)); }
+  if (a.extra === 'teeth') for (const x of [-0.014, 0.014]) { const t = new T.Mesh(new T.BoxGeometry(0.024, 0.04, 0.01), toon(0xfaf6ee)); t.position.set(x, -0.125, snoutTipZ + 0.012); head.add(noInk(t)); }
+  if (a.whiskers) for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
+    const w = noInk(new T.Mesh(new T.BoxGeometry(0.14, 0.004, 0.004), std(0x1d1410))); w.position.set(s * 0.13, -0.07 - i * 0.022, -0.25); w.rotation.set(0, s * 0.35, s * (0.12 - i * 0.12)); head.add(w);
+  }
   if (a.nose === 'ring') { const r = new T.Mesh(new T.TorusGeometry(0.04, 0.008, 8, 20), std(a.accColor, 0.25, 0.6)); r.position.set(0, -0.085, snoutTipZ - 0.03); r.rotation.x = 0.5; head.add(noInk(r)); }
 
   // eyes (sclera + pupil + highlight), upper lids, brows, mouth, X marks for when they're out
   const face = {eyes: [], pupils: [], brows: [], lids: [], xs: []};
   const white = toon(0xf4efe4), black = new T.MeshBasicMaterial({color: 0x0b0b0b}), shine = new T.MeshBasicMaterial({color: 0xffffff});
+  const eR = a.eyeR || 0.058, eX = a.eyeX || 0.1, eY = a.eyeY || 0.07, eZ = a.eyeZ || -0.215, ek = eR / 0.058;
   for (const s of [-1, 1]) {
-    const eye = new T.Group(); eye.position.set(s * 0.1, 0.07, -0.215); head.add(eye);
-    eye.add(new T.Mesh(new T.SphereGeometry(0.058, 16, 12), white));
-    const pupil = new T.Group(); pupil.position.z = -0.042; eye.add(pupil);
-    pupil.add(noInk(new T.Mesh(new T.SphereGeometry(0.03, 12, 10), black)));
-    const hl = noInk(new T.Mesh(new T.SphereGeometry(0.009, 6, 6), shine)); hl.position.set(0.012, 0.014, -0.026); pupil.add(hl);
+    const eye = new T.Group(); eye.position.set(s * eX, eY, eZ); head.add(eye);
+    eye.add(new T.Mesh(new T.SphereGeometry(eR, 16, 12), white));
+    const pupil = new T.Group(); pupil.position.z = -0.042 * ek; eye.add(pupil);
+    pupil.add(noInk(new T.Mesh(new T.SphereGeometry(0.03 * ek, 12, 10), black)));
+    const hl = noInk(new T.Mesh(new T.SphereGeometry(0.009 * ek, 6, 6), shine)); hl.position.set(0.012 * ek, 0.014 * ek, -0.026 * ek); pupil.add(hl);
     pupil.userData.base = pupil.position.clone();
     // lid: a fur-coloured dome that rotates down over the eye (open ≈ 1.45, closed ≈ -1.5)
     const lid = new T.Group(); eye.add(lid);
-    lid.add(noInk(new T.Mesh(new T.SphereGeometry(0.064, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), fur)));
+    lid.add(noInk(new T.Mesh(new T.SphereGeometry(eR + 0.006, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), a.extra === 'disc' ? toon(a.snout) : fur)));
     lid.rotation.x = 1.45;
-    const x = new T.Group(); x.position.z = -0.06; x.visible = false; eye.add(x);
-    for (const r of [-0.785, 0.785]) { const bar = noInk(new T.Mesh(new T.BoxGeometry(0.085, 0.016, 0.01), black)); bar.rotation.z = r; x.add(bar); }
-    const brow = noInk(new T.Mesh(new T.BoxGeometry(0.1, 0.022, 0.025), std(0x1d1410))); brow.position.set(s * 0.1, 0.16, -0.235); brow.userData.side = s; head.add(brow);
+    const x = new T.Group(); x.position.z = -0.06 * ek; x.visible = false; eye.add(x);
+    for (const r of [-0.785, 0.785]) { const bar = noInk(new T.Mesh(new T.BoxGeometry(0.085 * ek, 0.016, 0.01), black)); bar.rotation.z = r; x.add(bar); }
+    const brow = noInk(new T.Mesh(new T.BoxGeometry(0.1 * ek, 0.022, 0.025), std(0x1d1410))); brow.position.set(s * eX, eY + 0.03 + eR, eZ - 0.02); brow.userData.side = s; brow.userData.y = brow.position.y; head.add(brow);
     face.eyes.push(eye); face.pupils.push(pupil); face.brows.push(brow); face.lids.push(lid); face.xs.push(x);
   }
   if (a.extra === 'scar') { const scar = noInk(new T.Mesh(new T.BoxGeometry(0.018, 0.16, 0.012), toon(0x8a7468))); scar.position.set(0.1, 0.1, -0.245); scar.rotation.set(-0.3, 0, 0.35); head.add(scar); }
-  const mouthY = {cone: -0.13, disk: -0.175, box: -0.115}[a.snoutShape];
-  const mouthZ = {cone: -0.36, disk: -0.29, box: snoutTipZ - 0.008}[a.snoutShape];
+  const mouthY = {cone: -0.13, disk: -0.175, box: -0.115, cheeks: -0.15, long: -0.135, beak: -0.13}[a.snoutShape];
+  const mouthZ = {cone: -0.36, disk: -0.29, box: snoutTipZ - 0.008, cheeks: -0.25, long: -0.56, beak: -0.24}[a.snoutShape];
   const mouth = noInk(new T.Mesh(new T.SphereGeometry(0.05, 14, 10), std(0x3a0f0f, 0.6))); mouth.position.set(0, mouthY, mouthZ); mouth.scale.set(1.3, 0.12, 0.35); head.add(mouth);
   const smile = noInk(new T.Mesh(new T.TorusGeometry(0.05, 0.011, 6, 16, Math.PI), std(0x1d1410))); smile.position.set(0, mouthY + 0.02, mouthZ - 0.005); smile.rotation.z = Math.PI; smile.visible = false; head.add(smile);
   face.mouth = mouth; face.smile = smile;
@@ -215,7 +249,18 @@ function makeAnimal(kind) {
       const inner = noInk(new T.Mesh(new T.ConeGeometry(0.045, 0.13, 8), toon(0x2a1a14))); inner.position.set(0, 0.03, -0.035); ear.add(inner);
     } else if (a.ear === 'flop') { ear = new T.Mesh(new T.ConeGeometry(0.08, 0.16, 8), fur); ear.position.set(s * 0.18, 0.2, -0.05); ear.rotation.z = s * 2.2; }
     else if (a.ear === 'round') { ear = new T.Mesh(new T.SphereGeometry(0.08, 12, 10), fur); ear.position.set(s * 0.18, 0.22, 0); }
-    else { ear = new T.Mesh(new T.ConeGeometry(0.045, 0.3, 10), toon(0xe8dcc4)); ear.position.set(s * 0.28, 0.17, -0.02); ear.rotation.z = -s * 1.1; }
+    else if (a.ear === 'horn') { ear = new T.Mesh(new T.ConeGeometry(0.045, 0.3, 10), toon(0xe8dcc4)); ear.position.set(s * 0.28, 0.17, -0.02); ear.rotation.z = -s * 1.1; }
+    else if (a.ear === 'long') { // rabbit: tall ears, the right one bent over
+      ear = new T.Group(); ear.position.set(s * 0.09, 0.22, 0.02); ear.rotation.z = -s * 0.12;
+      const outer = new T.Mesh(new T.SphereGeometry(1, 12, 10), fur); outer.scale.set(0.055, 0.2, 0.035); outer.position.y = 0.17; ear.add(outer);
+      const inner = noInk(new T.Mesh(new T.SphereGeometry(1, 10, 8), toon(0xe8a0aa))); inner.scale.set(0.032, 0.15, 0.02); inner.position.set(0, 0.17, -0.02); ear.add(inner);
+      if (s > 0) ear.rotation.x = 0.55;
+    } else if (a.ear === 'cat') {
+      ear = new T.Group(); ear.position.set(s * 0.15, 0.22, 0.01); ear.rotation.z = -s * 0.25;
+      const outer = new T.Mesh(new T.ConeGeometry(0.075, 0.15, 4), fur); outer.position.y = 0.04; outer.rotation.y = Math.PI / 4; ear.add(outer);
+      const inner = noInk(new T.Mesh(new T.ConeGeometry(0.04, 0.1, 4), toon(0xe8a0aa))); inner.position.set(0, 0.03, -0.03); inner.rotation.y = Math.PI / 4; ear.add(inner);
+    } else if (a.ear === 'tuft') { ear = new T.Mesh(new T.ConeGeometry(0.04, 0.15, 8), toon(a.body)); ear.position.set(s * 0.16, 0.25, -0.02); ear.rotation.z = -s * 0.5; }
+    else continue; // no ears (crocodile)
     ear.userData.rz = ear.rotation.z; head.add(ear); ears.push(ear);
   }
 
@@ -228,6 +273,21 @@ function makeAnimal(kind) {
   } else if (a.acc === 'cap') {
     const cap = new T.Mesh(new T.CylinderGeometry(0.24, 0.26, 0.09, 20), acc); cap.position.set(0, 0.22, 0.01); cap.rotation.x = -0.12; head.add(cap);
     const brim = new T.Mesh(new T.BoxGeometry(0.3, 0.02, 0.16), acc); brim.position.set(0, 0.19, -0.25); brim.rotation.x = 0.1; head.add(brim);
+  } else if (a.acc === 'glasses') { // round spectacles
+    for (const s of [-1, 1]) { const r = new T.Mesh(new T.TorusGeometry(eR + 0.012, 0.006, 6, 20), acc); r.position.set(s * eX, eY, eZ - eR - 0.012); head.add(noInk(r)); }
+    const bridge = noInk(new T.Mesh(new T.BoxGeometry(eX * 2 - (eR + 0.012) * 2, 0.008, 0.008), acc)); bridge.position.set(0, eY + 0.01, eZ - eR - 0.012); head.add(bridge);
+    for (const s of [-1, 1]) { const tm = noInk(new T.Mesh(new T.BoxGeometry(0.006, 0.006, 0.2), acc)); tm.position.set(s * (eX + eR + 0.012), eY, eZ + 0.04); head.add(tm); }
+  } else if (a.acc === 'beret') {
+    const b = new T.Mesh(new T.SphereGeometry(0.2, 18, 10), acc); b.scale.set(1.05, 0.32, 1.05); b.position.set(0.05, 0.25, 0.02); b.rotation.z = -0.28; head.add(b);
+    const nub = noInk(new T.Mesh(new T.CylinderGeometry(0.008, 0.012, 0.03, 6), acc)); nub.position.set(0.035, 0.32, 0.02); head.add(nub);
+  } else if (a.acc === 'fedora') {
+    const hat = new T.Group(); hat.position.set(0, 0.2, 0.02); hat.rotation.set(-0.08, 0, 0.06); head.add(hat);
+    const crown = new T.Mesh(new T.CylinderGeometry(0.17, 0.2, 0.17, 18), acc); crown.position.y = 0.1; hat.add(crown);
+    const band = noInk(new T.Mesh(new T.CylinderGeometry(0.202, 0.202, 0.04, 18), toon(0x6a1a1a))); band.position.y = 0.04; hat.add(band);
+    const brim = new T.Mesh(new T.CylinderGeometry(0.33, 0.33, 0.02, 24), acc); brim.position.y = 0.01; hat.add(brim);
+  } else if (a.acc === 'monocle') { // a gold monocle on the right eye with a chain
+    const m = noInk(new T.Mesh(new T.TorusGeometry(eR + 0.01, 0.007, 6, 22), toon(a.accColor))); m.position.set(eX, eY, eZ - eR - 0.006); head.add(m);
+    const chain = noInk(new T.Mesh(new T.TorusGeometry(0.09, 0.004, 4, 16, Math.PI * 0.8), toon(a.accColor))); chain.position.set(eX + 0.06, eY - 0.1, eZ - 0.02); chain.rotation.set(0, Math.PI / 2, -1.2); head.add(chain);
   } else if (a.acc === 'scarf') {
     const sc = new T.Mesh(new T.TorusGeometry(0.22, 0.065, 8, 22), acc); sc.rotation.x = Math.PI / 2; sc.position.y = 0.8; fig.add(sc);
     const tail = new T.Mesh(new T.BoxGeometry(0.09, 0.28, 0.04), acc); tail.position.set(0.12, 0.66, -0.27); tail.rotation.set(-0.3, 0, 0.15); fig.add(tail);
@@ -288,7 +348,7 @@ function animateFace(ch, st, t, dt, lookWorld, opt = {}) {
   // brows
   for (const b of face.brows) {
     const s = b.userData.side;
-    const ty = fear ? 0.19 : 0.16;
+    const ty = b.userData.y + (fear ? 0.03 : 0);
     const rz = fear ? s * 0.35 : happy ? -s * 0.2 : st.confident ? -s * 0.3 : 0;
     b.position.y += (ty - b.position.y) * k(10);
     b.rotation.z += (rz - b.rotation.z) * k(10);
@@ -316,7 +376,7 @@ function animateFace(ch, st, t, dt, lookWorld, opt = {}) {
   let gunArm = null, gripLocal = null;
   if (opt.grip && !st.dead) { gripLocal = torso.worldToLocal(_v.copy(opt.grip)); gunArm = gripLocal.x >= 0 ? arms[1] : arms[0]; }
   for (const arm of arms) {
-    const s = arm.side, want = restHand(s);
+    const s = arm.side, want = opt.lap ? new T.Vector3(s * 0.2, 0.16, -0.36) : restHand(s); // no table: paws on the lap
     want.y += Math.sin(t * 1.6 + st.phase + s) * 0.006; // breathing
     // out: paws sprawled on the felt either side of the head (set in the seat's frame, then into the slumped torso's)
     if (st.dead) want.set(s * 0.6, 0.5, -0.72).applyQuaternion(_tq.copy(torso.quaternion).invert());
@@ -366,10 +426,106 @@ function renderPortraits(w = 220, h = 250) {
   return out;
 }
 
+/* ---------- character showcase: the full-screen character select stage ---------- */
+// One character on its chair under a spotlight, with out-of-focus bar lights behind. It breathes,
+// blinks and follows the pointer; switching characters pops the new one in with a gesture.
+// `offset` shifts the subject: {x, y} as fractions of the canvas (e.g. x: -0.22 = left of centre).
+function createShowcase(canvas) {
+  let r;
+  try { r = new T.WebGLRenderer({canvas, antialias: true}); } catch (e) { return null; }
+  r.setPixelRatio(Math.min(root.matchMedia && root.matchMedia('(pointer: coarse)').matches ? 1.5 : 2, root.devicePixelRatio || 1)); r.outputEncoding = T.sRGBEncoding;
+  r.shadowMap.enabled = true; r.shadowMap.type = T.PCFSoftShadowMap;
+  const sc = new T.Scene(); sc.background = new T.Color(0x0e0a07); sc.fog = new T.Fog(0x0e0a07, 6, 14);
+  sc.add(new T.HemisphereLight(0x8a6a48, 0x120c08, 0.42));
+  const key = new T.SpotLight(0xffc77a, 1.35, 9, Math.PI / 7, 0.55, 1.2); key.position.set(0.4, 4.2, -1.4); key.target.position.set(0, 1.0, 0);
+  key.castShadow = true; key.shadow.mapSize.set(1024, 1024); key.shadow.bias = -0.0005; sc.add(key, key.target);
+  const rim = new T.DirectionalLight(0xe2a64a, 0.5); rim.position.set(-2, 2.5, 2.5); sc.add(rim);
+  const rim2 = new T.DirectionalLight(0x6a8aff, 0.18); rim2.position.set(2.5, 1.5, 2); sc.add(rim2);
+  // floor: a pool of light on dark planks
+  const [fc, fg] = (() => { const c = document.createElement('canvas'); c.width = c.height = 256; return [c, c.getContext('2d')]; })();
+  const grad = fg.createRadialGradient(128, 128, 10, 128, 128, 128); grad.addColorStop(0, '#5a3a22'); grad.addColorStop(0.55, '#2a1a10'); grad.addColorStop(1, '#0e0a07');
+  fg.fillStyle = grad; fg.fillRect(0, 0, 256, 256);
+  const floorTex = new T.CanvasTexture(fc); floorTex.encoding = T.sRGBEncoding;
+  const floor = new T.Mesh(new T.CircleGeometry(4, 48), new T.MeshStandardMaterial({map: floorTex, roughness: 0.85})); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; sc.add(floor);
+  // bokeh: soft, out-of-focus bar lights far behind
+  const bokehTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(0.65, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new T.CanvasTexture(c); })();
+  const bokeh = [];
+  const cols = [0xffb060, 0xffd090, 0xff6040, 0xffa040, 0x60a0ff, 0xff4070];
+  for (let i = 0; i < 26; i++) {
+    const s = new T.Sprite(new T.SpriteMaterial({map: bokehTex, color: cols[i % cols.length], transparent: true, opacity: 0.25 + Math.random() * 0.3, blending: T.AdditiveBlending, depthWrite: false, fog: false}));
+    s.position.set((Math.random() - 0.5) * 9, 0.6 + Math.random() * 3, 3 + Math.random() * 4); s.scale.setScalar(0.25 + Math.random() * 0.6);
+    s.userData = {ph: Math.random() * 6, base: s.position.clone(), op: s.material.opacity};
+    sc.add(s); bokeh.push(s);
+  }
+  // dust in the spotlight
+  const dustGeo = new T.BufferGeometry(), N = 70, dp = new Float32Array(N * 3), dv = [];
+  for (let i = 0; i < N; i++) { dp.set([(Math.random() - 0.5) * 1.8, Math.random() * 3.2, (Math.random() - 0.5) * 1.8 - 0.3], i * 3); dv.push(0.02 + Math.random() * 0.05); }
+  dustGeo.setAttribute('position', new T.BufferAttribute(dp, 3));
+  const dust = new T.Points(dustGeo, new T.PointsMaterial({color: 0xffe2a8, size: 0.018, transparent: true, opacity: 0.6, depthWrite: false, blending: T.AdditiveBlending}));
+  sc.add(dust);
+
+  const cam = new T.PerspectiveCamera(30, 1, 0.1, 30);
+  const CAM = new T.Vector3(0.6, 1.5, -4.4), LOOK = new T.Vector3(0, 1.05, 0);
+  cam.position.copy(CAM); cam.lookAt(LOOK);
+  let ch = null, st = null, kind = null, running = false, last = 0, t = 0, enterT = 0, offset = {x: 0, y: 0, zoom: 1};
+  const pointer = new T.Vector2(), look = new T.Vector3();
+  const onMove = e => { const b = canvas.getBoundingClientRect(); pointer.set((e.clientX - b.left) / b.width * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1); };
+  root.addEventListener('pointermove', onMove);
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return;
+    r.setSize(w, h, false); cam.aspect = w / h;
+    // narrow screens: pull back so the whole figure fits
+    cam.fov = w / h < 0.8 ? 40 : 30;
+    cam.zoom = offset.zoom;
+    cam.setViewOffset(w, h, -offset.x * w, -offset.y * h, w, h);
+    cam.updateProjectionMatrix();
+  }
+  function show(k) {
+    if (k === kind) return;
+    kind = k;
+    if (ch) sc.remove(ch);
+    ch = makeAnimal(k); // models face -z, where the camera is
+    ch.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    sc.add(ch);
+    st = newFaceState(); st.happyUntil = t + 1.4; st.talkUntil = t + 0.5; st.gesture = {kind: Math.random() < 0.5 ? 'push2' : 'knock', t0: t + 0.15};
+    enterT = t;
+  }
+  function frame(now) {
+    if (!running) return;
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - last) / 1000 || 0.016); last = now; t += dt;
+    if (ch) {
+      // pop in: a quick rise and settle
+      const p = Math.min(1, (t - enterT) / 0.45), e = 1 - Math.pow(1 - p, 3);
+      ch.scale.setScalar(0.88 + 0.12 * e + Math.sin(p * Math.PI) * 0.03);
+      ch.position.y = (1 - e) * -0.15;
+      // turn a little toward the pointer; eyes follow it
+      ch.rotation.y += (pointer.x * 0.35 - ch.rotation.y) * (1 - Math.exp(-dt * 3));
+      look.set(pointer.x * -1.6, 1.3 + pointer.y * 0.9, -2.5);
+      animateFace(ch, st, t, dt, look, {lap: true});
+    }
+    for (const b of bokeh) { const u = b.userData; b.position.x = u.base.x + Math.sin(t * 0.2 + u.ph) * 0.15; b.material.opacity = u.op * (0.75 + 0.25 * Math.sin(t * 0.8 + u.ph)); }
+    for (let i = 0; i < N; i++) { dp[i * 3 + 1] += dv[i] * dt; if (dp[i * 3 + 1] > 3.2) dp[i * 3 + 1] = 0; }
+    dustGeo.attributes.position.needsUpdate = true;
+    cam.position.set(CAM.x + Math.sin(t * 0.3) * 0.05, CAM.y + Math.sin(t * 0.4) * 0.02, CAM.z); cam.lookAt(LOOK);
+    r.render(sc, cam);
+  }
+  return {
+    show, resize,
+    // x, y: shift the subject by a fraction of the canvas (+x right, +y down); zoom < 1 shows it smaller
+    setOffset(x, y, zoom = 1) { offset = {x, y, zoom}; resize(); },
+    start() { if (running) return; running = true; resize(); last = performance.now(); requestAnimationFrame(frame); },
+    stop() { running = false; },
+    get kind() { return kind; },
+  };
+}
+
 /* ---------- main table scene ---------- */
 function createScene(canvas, labelLayer) {
   const renderer = new T.WebGLRenderer({canvas, antialias: true});
-  renderer.setPixelRatio(Math.min(2, root.devicePixelRatio || 1));
+  // touch devices: cap the render resolution at 1.5x (dense phone screens cost ~40% fewer pixels than at 2x)
+  const coarse = !!(root.matchMedia && root.matchMedia('(pointer: coarse)').matches);
+  renderer.setPixelRatio(Math.min(coarse ? 1.5 : 2, root.devicePixelRatio || 1));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = T.PCFSoftShadowMap;
   renderer.outputEncoding = T.sRGBEncoding;
@@ -1002,8 +1158,10 @@ function createScene(canvas, labelLayer) {
     if (!S.mode || S.mode === 'poker') {
       // flop cards leave the deck one after another (0.16 s apart, like the 'board' sound) and flip in the air
       const known = S.board.filter(c => dyn.has('c' + c.id)).length;
+      // the row runs across your line of sight, whichever seat you are in (every client lays out its own view)
+      const across = viewer != null ? seatBasis(viewer).side : new T.Vector3(1, 0, 0);
       S.board.forEach((c, k) => {
-        const pos = new T.Vector3((k - 2) * 0.33, TOP + 0.004, 0);
+        const pos = across.clone().multiplyScalar((2 - k) * 0.33).setY(TOP + 0.004);
         const quat = viewer != null ? flatQ(-seatBasis(viewer).ang - Math.PI / 2 + Math.PI, true) : flatQ(0, true);
         setFace(want('c' + c.id, makeCard, pos, quat, {from: DECK_POS, fromQ: DECK_Q, enter: {delay: Math.max(0, k - known) * 0.16, dur: 0.5, arc: 0.3}}), c);
       });
@@ -1032,7 +1190,8 @@ function createScene(canvas, labelLayer) {
       const m = new T.Matrix4().lookAt(gunTarget.pos, tgt, new T.Vector3(0, 1, 0));
       gunTarget.quat = new T.Quaternion().setFromRotationMatrix(m).multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), Math.PI / 2));
     } else {
-      gunTarget.pos = new T.Vector3(-0.15, TOP + 0.035, -0.55);
+      // resting on a diagonal, clear of the board whichever way it runs (across x or across z)
+      gunTarget.pos = new T.Vector3(0.55, TOP + 0.035, -0.55);
       gunTarget.quat = new T.Quaternion().setFromEuler(new T.Euler(Math.PI / 2, 0, 0.6));
     }
     // effects fire on phase changes, so they work whether the state object is reused (host) or new (guest)
@@ -1060,7 +1219,14 @@ function createScene(canvas, labelLayer) {
         const H = headPos(i);
         const base = viewer != null ? seatBasis(viewer).out.multiplyScalar(SEAT_R + 0.2).setY(EYE_H + 0.05) : new T.Vector3(0, 4.4, 3.6);
         if (st === 'load') { camPos = base.lerp(H, 0.1); camLook = new T.Vector3(0, TOP, 0).lerp(gunTarget.pos, 0.75); fovMul = 0.88; }
-        else { camPos = base.lerp(H, 0.3); camLook = H.add(new T.Vector3(0, -0.06, 0)); fovMul = st === 'aim' ? 0.62 : st === 'bang' ? 0.58 : 0.68; }
+        else {
+          // from in front of the shooter (over the table), a little toward the gun, so every seat sees the face and the gun
+          // (pushing in from your own seat only shows a neighbour's back)
+          const {out: so, side: ss} = seatBasis(i);
+          camPos = H.clone().addScaledVector(so, -1.6).addScaledVector(ss, 0.32).setY(H.y + 0.1);
+          camLook = H.clone().addScaledVector(ss, 0.12).add(new T.Vector3(0, -0.04, 0));
+          fovMul = st === 'aim' ? 0.66 : st === 'bang' ? 0.62 : 0.72;
+        }
       }
     }
 
@@ -1244,7 +1410,16 @@ function createScene(canvas, labelLayer) {
     return viewerSeat != null ? camera.position.clone() : new T.Vector3(0, TOP, 0);
   }
 
+  // one frame; an exception is logged once and the loop carries on (it used to stop rendering for good)
+  let frameErr = false, frameMs = 0, paused = false;
   function frame() {
+    requestAnimationFrame(frame);
+    if (paused) { clock.getDelta(); return; } // e.g. under the full-screen character select
+    const t0 = performance.now();
+    try { step(); } catch (e) { if (!frameErr) { frameErr = true; console.error(e); } }
+    frameMs += (performance.now() - t0 - frameMs) * 0.05;
+  }
+  function step() {
     const realDt = Math.min(0.05, clock.getDelta());
     const dt = fx.step(realDt, camera, renderer), t = now(); // dt is 0 during hit-stop, small in slow motion
     const k = d => root.__instant ? 1 : 1 - Math.exp(-dt * d);
@@ -1318,10 +1493,9 @@ function createScene(canvas, labelLayer) {
     if (fall > 0.001) camera.rotateZ(0.45 * fx.ease.out(fall));
     renderer.render(scene, camera);
     updateLabels();
-    requestAnimationFrame(frame);
   }
   shineAll(scene); [brass, copper, glassMat, whisky, iceMat].forEach(shiny);
-  root.__pokerDebug = {camera, scene, fx, dyn, seats: () => seats};
+  root.__pokerDebug = {camera, scene, renderer, fx, dyn, seats: () => seats, get frameMs() { return frameMs; }};
   resize(); requestAnimationFrame(frame);
 
   return {
@@ -1330,10 +1504,11 @@ function createScene(canvas, labelLayer) {
     setPicked(ids) { picked = new Set(ids); if (lastState) update(lastState, viewerSeat, lastHide); },
     setBoardView(on) { boardView = on; if (lastState) update(lastState, viewerSeat, lastHide); },
     get boardView() { return boardView; },
+    setPaused(p) { paused = !!p; },
     // called when the bulb stutters (index.html plays a buzz)
     set onFlicker(fn) { onFlicker = fn; },
   };
 }
 
-root.PokerScene = {createScene, renderPortraits, CHARACTERS, DEAL};
+root.PokerScene = {createScene, createShowcase, renderPortraits, CHARACTERS, DEAL};
 })(window);

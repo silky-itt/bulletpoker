@@ -100,6 +100,10 @@ Built from primitives, chunky proportions (big head, round body), seated at the 
 | `pig` | Truffle | Pig | Pink, flat round snout with two nostrils, floppy ears, bare arms | The butcher: blue-grey shirt, white apron with a bib, neck strap and a stain | Grey flat cap | Reckless: calls a lot |
 | `bear` | Bruno | Brown bear | Brown, round ears, big black nose | Teal knit sweater with a ribbed hem, cuffs and two cream bands | Red scarf | Steady: plays tight |
 | `bull` | Tank | Bull | Charcoal, wide muzzle, ivory horns, a scar over one eye | White tank top under an open leather jacket with lapels and collar | Gold nose ring | Aggressive: raises a lot |
+| `rabbit` | Pip | Rabbit | Cream, tall ears (one bent over), puffy cheeks, pink nose, buck teeth, whiskers | The nervous accountant: pale blue shirt, mustard waistcoat | Round spectacles | Nervous: folds a lot |
+| `cat` | Smokey | Cat | Grey, short pointed ears with pink insides, puffy cheeks, pink nose, whiskers | Black turtleneck with a rolled collar | Red beret | Cool: never blinks first |
+| `croc` | Snap | Crocodile | Green, eyes high on the head, a long flat snout lined with teeth, no ears | The boss: white shirt, navy suit jacket with lapels, red tie | Fedora with a red band | Patient: waits for the kill |
+| `owl` | Hoot | Owl | Brown, big eyes on a pale facial disc, a hooked beak, ear tufts, golden talons | The professor: cream shirt under a tweed jacket | Gold monocle on a chain | Calculating: remembers every card |
 
 **Arms (every character):** upper arm, forearm, elbow and a paw (palm, thumb, three finger nubs), placed every frame by two-bone IK in torso space with the elbows bending out and down. Paws rest on the table rim and breathe with the body.
 
@@ -221,10 +225,10 @@ Shown for 4.8 s at showdown, hidden while a gun is in use. Inspired by the *Liar
 - **Winner row:** warm gold gradient band plus a green **SAFE** tag. Losers get a red **PULLS n** tag (n = bullets they will load).
 - Phone: the name moves above the cards; cards shrink.
 
-### 5.4 Flow: profile → lobby → table
-1. **Profile:** your name + a strip of **portrait cards** (head-and-shoulders render of each animal under the bar lamp). Saved in localStorage, so returning players skip straight to the lobby.
-2. **Lobby:** *Open tables* (live list: table name, host, seats used, Join), *Host a table* (name + "Show in the open tables list"), *Join with a code*. Opening an invite link (`…/#CODE`) joins that table directly.
-3. **Table (waiting):** big table code, invite link with **Copy**, 4 seat cards with portraits, *Change character* (taken characters are disabled). Only the host sees **Start game**, enabled from 2 players.
+### 5.4 Flow: home → table
+1. **Home = character select + lobby**, one full-screen stage. The chosen character sits on its chair under a spotlight (a live 3D render, `PokerScene.createShowcase`), breathing, blinking and following the pointer, with soft out-of-focus bar lights behind. Over it: the index (`03 / 08`), the name in large Playfair italic, the species and blurb, **your name**, then a frosted panel with *Open tables* (live list, Join), *Host a table* (name + "Show in the open tables list") and *Join with a code*, and a *How to play* link. Change character with the ‹ › arrows, ←/→, a swipe across the stage, or the portrait strip at the bottom; picking one saves it (no confirm step) and it pops in with a gesture and a grin. Hosting or joining without a name shows "Pick a name first." in place. Desktop: character left, column right (scrolls if needed). Phones: a smaller character in the top third, the column below it as a scrolling sheet. The table scene pauses while home is open. Name and character are saved in localStorage. Opening an invite link (`…/#CODE`) with a saved name joins straight away; without one, home opens with the code filled in.
+2. *(merged into 1)*
+3. **Table (waiting):** big table code, invite link with **Copy**, 4 seat cards with portraits, *Change character* (opens the same full-screen select; characters other players hold are crossed out and can't be confirmed, and the marks update live). Only the host sees **Start game**, enabled from 2 players.
 4. **Game over:** the host chooses *Play again* (same players) or *Back to the room*; guests wait.
 
 Characters are unique per table: if you join with a taken character, the host gives you a free one, and you can change it in the room.
@@ -326,6 +330,8 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 - `dev/fxlab.html`: dev page that plays gun moments on a local table with a chosen outcome (click / bang / God Save), shooter and view, no network. `?slow=4` plays everything 4× slower; `window.__fxSlow = 0` freezes the scene for inspection.
 - `audio.js`: Web Audio synth for music and SFX.
 - `net.js`: lobby and table networking (both over MQTT), reliable encrypted links, state filtering per seat.
+- **Releases:** `index.html` loads every local script with `?v=YYYYMMDD…`. Bump it on each deploy: GitHub Pages lets browsers cache files for ~10 minutes, and a mix of old and new files breaks things (e.g. an old `net.js` rejects the new characters). `net.js` keeps its own `ANIMALS` whitelist, which must match `PokerScene.CHARACTERS`.
+- **Performance:** on touch devices the render resolution is capped at 1.5×; the table scene stops rendering under the character select; a frame that throws is logged once and the loop carries on.
 - `index.html`: profile, lobby, room, HUD, input, and the wiring between the files above.
 - Three.js **r128 UMD** (`three.min.js` global build) and MQTT.js 5.10.1 (`dist/mqtt.min.js`), vendored in `assets/vendor/` from the npm packages (byte-identical to the former CDN copies).
 

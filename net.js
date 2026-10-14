@@ -23,7 +23,7 @@ const clearRetained = (mq, topic) => { mq.publish(topic, GONE, {retain: true, qo
 const makeCode = (n = 5) => Array.from({length: n}, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
 const cleanName = (s, fallback, max = 14) => (String(s || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, max) || fallback);
-const ANIMALS = ['fox', 'pig', 'bear', 'bull'];
+const ANIMALS = ['fox', 'pig', 'bear', 'bull', 'rabbit', 'cat', 'croc', 'owl']; // keys of PokerScene.CHARACTERS
 const validAnimal = (a, fallback = 'fox') => ANIMALS.includes(a) ? a : fallback;
 const ACTIONS = ['fold', 'coward', 'check', 'call', 'raise', 'allin', 'play', 'liar', 'bid'];
 const MODES = ['poker', 'deck', 'dice'];
