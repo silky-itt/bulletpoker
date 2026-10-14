@@ -95,11 +95,18 @@ function createAudio() {
       noise(tt + 0.15, 0.02, {type: 'bandpass', freq: 2200, q: 3, gain: 0.5}); noise(tt + 0.24, 0.03, {type: 'bandpass', freq: 1500, q: 3, gain: 0.45});
     },
     click() { const t = now(); noise(t, 0.015, {type: 'highpass', freq: 3000, gain: 0.7}); tone(t, 1800, 0.02, {gain: 0.15}); noise(t + 0.35, 0.7, {type: 'lowpass', freq: 900, gain: 0.08, attack: 0.15}); },
-    bang() {
+    // self: it was your gun, so the ringing is louder and lasts longer
+    bang(self = false) {
       const t = now();
       noise(t, 0.9, {type: 'lowpass', freq: 9000, to: 200, q: 0.5, gain: 1.0, attack: 0.001});
       tone(t, 90, 0.5, {to: 35, gain: 0.9, attack: 0.001});
       noise(t, 0.05, {type: 'highpass', freq: 2000, gain: 0.8, attack: 0.001});
+      // slapback off the bar walls
+      noise(t + 0.11, 0.5, {type: 'lowpass', freq: 1800, to: 300, gain: 0.28, attack: 0.004});
+      noise(t + 0.26, 0.6, {type: 'lowpass', freq: 1100, to: 200, gain: 0.12, attack: 0.006});
+      // ears ringing
+      tone(t + 0.15, 3950, self ? 3.2 : 1.8, {gain: self ? 0.035 : 0.014, attack: 0.08});
+      tone(t + 0.15, 4120, self ? 2.8 : 1.5, {gain: self ? 0.02 : 0.008, attack: 0.1});
     },
     // God Save: dry hammer click, then a soft choir chord and a shimmer of bells
     godSave() {

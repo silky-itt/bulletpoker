@@ -106,7 +106,9 @@ function animateFace(ch, st, t, dt, lookWorld) {
   // blink
   if (t > st.nextBlink) { st.blinkUntil = t + 0.12; st.nextBlink = t + 2 + Math.random() * 4; }
   const blink = t < st.blinkUntil;
-  const fear = st.fear && !st.dead, happy = t < st.happyUntil && !st.dead, talk = t < st.talkUntil && !st.dead;
+  // startle: a flinch when someone else's gun goes off
+  const startled = t < st.startle && !st.dead;
+  const fear = (st.fear || startled) && !st.dead, happy = t < st.happyUntil && !st.dead, talk = t < st.talkUntil && !st.dead;
   const eyeY = st.dead ? 0.12 : blink ? 0.1 : fear ? 1.25 : 1;
   for (const e of face.eyes) { e.scale.y += (eyeY - e.scale.y) * k(blink ? 40 : 12); e.scale.x += ((fear ? 1.15 : 1) - e.scale.x) * k(12); }
   for (const p of face.pupils) p.visible = !st.dead;
@@ -123,6 +125,9 @@ function animateFace(ch, st, t, dt, lookWorld) {
     yaw = Math.max(-0.7, Math.min(0.7, Math.atan2(-lt.x, -lt.z)));
   }
   head.rotation.y += ((st.dead ? 0 : yaw * 0.75) - head.rotation.y) * k(3);
+  // a bullet snaps the head away from the gun, fast, and it stays tipped over
+  const hitFast = st.hitT != null && t - st.hitT < 0.25;
+  head.rotation.z += ((st.dead && st.hitSide ? st.hitSide * 0.5 : 0) - head.rotation.z) * k(hitFast ? 28 : 4);
   // brows
   for (const b of face.brows) {
     const s = b.userData.side;
@@ -142,10 +147,12 @@ function animateFace(ch, st, t, dt, lookWorld) {
   // body: breathe, tremble, slump
   const slump = st.dead ? 0.95 : st.relief && t < st.relief ? 0.25 : 0;
   torso.rotation.x += (slump - torso.rotation.x) * k(st.dead ? 2.5 : 4);
-  torso.position.y = 0.6 + (st.dead ? 0 : Math.sin(t * 1.6 + st.phase) * 0.012);
+  const jump = startled ? Math.max(0, Math.sin(Math.min(1, (t - st.startle + 0.7) / 0.35) * Math.PI)) * 0.05 : 0;
+  torso.position.y = 0.6 + (st.dead ? 0 : Math.sin(t * 1.6 + st.phase) * 0.012) + jump;
+  torso.rotation.z += ((st.dead && st.hitSide ? st.hitSide * 0.18 : 0) - torso.rotation.z) * k(hitFast ? 14 : 3);
   torso.position.x = fear ? (Math.random() - 0.5) * 0.015 : 0;
 }
-const newFaceState = () => ({nextBlink: Math.random() * 3, blinkUntil: 0, talkUntil: 0, happyUntil: 0, fear: false, dead: false, relief: 0, phase: Math.random() * 6, confident: false});
+const newFaceState = () => ({nextBlink: Math.random() * 3, blinkUntil: 0, talkUntil: 0, happyUntil: 0, fear: false, dead: false, relief: 0, phase: Math.random() * 6, confident: false, startle: 0, hitT: null, hitSide: 0});
 
 /* ---------- portrait renderer for the character picker ---------- */
 function renderPortraits(w = 220, h = 250) {
@@ -266,12 +273,20 @@ function createScene(canvas, labelLayer) {
 
   // gun & bullets
   const brass = std(0xc8963c, 0.3, 0.9), copper = std(0xb0603a, 0.3, 0.9);
+  // Rig: g (placed by the scene) > body (recoil) > parts. The crane swings the cylinder out to
+  // load; hammer and trigger pivot. Barrel along +x, muzzle at MUZZLE.
   function makeGun() {
-    const g = new T.Group();
-    const steel = std(0x3a3a3c, 0.35, 0.85), grip = std(0x4a2a16, 0.7);
+    const g = new T.Group(), gunBody = new T.Group(); g.add(gunBody);
+    // low metalness: there is no environment map, so a fully metallic gun renders black
+    const steel = std(0x6a6a70, 0.38, 0.55), grip = std(0x6a3a1e, 0.65), dark = std(0x2a2a2e, 0.5, 0.5);
     const barrel = new T.Mesh(new T.CylinderGeometry(0.03, 0.03, 0.42, 12), steel); barrel.rotation.z = Math.PI / 2; barrel.position.x = 0.24;
-    // cylinder group: body + 6 chamber holes + 6 rounds (shown as they are loaded)
-    const cyl = new T.Group();
+    const rib = new T.Mesh(new T.BoxGeometry(0.36, 0.014, 0.02), steel); rib.position.set(0.27, 0.032, 0);
+    const sight = new T.Mesh(new T.BoxGeometry(0.02, 0.022, 0.008), dark); sight.position.set(0.43, 0.045, 0);
+    const rod = new T.Mesh(new T.CylinderGeometry(0.009, 0.009, 0.2, 8), steel); rod.rotation.z = Math.PI / 2; rod.position.set(0.17, -0.035, 0);
+    const bore = new T.Mesh(new T.CircleGeometry(0.014, 10), std(0x000000, 1)); bore.rotation.y = Math.PI / 2; bore.position.x = 0.451;
+    // crane pivots below the cylinder so the cylinder swings out sideways
+    const crane = new T.Group(); crane.position.y = -0.06;
+    const cyl = new T.Group(); cyl.position.y = 0.06; crane.add(cyl);
     const body = new T.Mesh(new T.CylinderGeometry(0.075, 0.075, 0.13, 18), steel); body.rotation.z = Math.PI / 2; cyl.add(body);
     const holeM = std(0x050505, 0.9), rounds = [];
     for (let c = 0; c < 6; c++) {
@@ -284,12 +299,21 @@ function createScene(canvas, labelLayer) {
     }
     const frame = new T.Mesh(new T.BoxGeometry(0.2, 0.07, 0.05), steel); frame.position.set(-0.08, 0.02, 0);
     const handle = new T.Mesh(new T.BoxGeometry(0.08, 0.24, 0.06), grip); handle.position.set(-0.17, -0.1, 0); handle.rotation.z = 0.35;
-    const trig = new T.Mesh(new T.TorusGeometry(0.04, 0.008, 6, 12, Math.PI), steel); trig.position.set(-0.06, -0.05, 0); trig.rotation.z = Math.PI;
-    g.add(barrel, cyl, frame, handle, trig);
+    const guard = new T.Mesh(new T.TorusGeometry(0.04, 0.008, 6, 12, Math.PI), steel); guard.position.set(-0.06, -0.05, 0); guard.rotation.z = Math.PI;
+    // trigger blade hangs from a pivot inside the guard
+    const trigger = new T.Group(); trigger.position.set(-0.05, -0.03, 0);
+    const blade = new T.Mesh(new T.BoxGeometry(0.012, 0.05, 0.012), dark); blade.position.set(-0.006, -0.025, 0); blade.rotation.z = -0.25; trigger.add(blade);
+    // hammer pivots at the back of the frame: rest leans forward, cocked leans back
+    const hammer = new T.Group(); hammer.position.set(-0.16, 0.045, 0);
+    const hm = new T.Mesh(new T.BoxGeometry(0.022, 0.06, 0.018), dark); hm.position.y = 0.025; hammer.add(hm);
+    const spur = new T.Mesh(new T.BoxGeometry(0.035, 0.012, 0.022), dark); spur.position.set(-0.012, 0.055, 0); hammer.add(spur);
+    hammer.rotation.z = HAMMER_REST;
+    gunBody.add(barrel, rib, sight, rod, bore, crane, frame, handle, guard, trigger, hammer);
     g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-    g.userData.cyl = cyl; g.userData.rounds = rounds;
+    g.userData = {body: gunBody, cyl, crane, hammer, trigger, rounds};
     return g;
   }
+  const HAMMER_REST = -0.3, HAMMER_COCKED = 0.75, MUZZLE = new T.Vector3(0.46, 0, 0);
   const bulletGeo = new T.CylinderGeometry(0.022, 0.022, 0.09, 10);
   const tipGeo = new T.SphereGeometry(0.022, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2);
   function makeBullet() {
@@ -352,8 +376,46 @@ function createScene(canvas, labelLayer) {
   const curLook = camLook.clone();
   let mouse = {x: 0, y: 0}, viewerSeat = null, shake = 0, flashT = 0, boardView = false;
   let lastState = null, lastHide = false, snap = true, picked = new Set();
-  let gunFx = {gun: null, flown: new Set()};
   const flyers = [];
+
+  /* ----- gun moment: effects, gun mechanics, shot cam (DESIGN.md §3.4) ----- */
+  const fx = root.PokerFX.createFX(scene);
+  const now = () => fx.time;
+  // ga: what the gun is doing. phase = last gun state seen ('load', 'aim', 'click', 'bang', 'godsave' or null)
+  const ga = {phase: null, pid: null, flown: new Set(), open: 0, cock: 0, trig: 0, kick: 0, aimT0: 0, spinFrom: 0, spinTo: 0, idx: 0, drop: null, sweat: null};
+  const camBase = camPos.clone();
+  let fovMul = 1, baseFov = 60, fall = 0, fallOn = false, lampKick = 0, flickerUntil = 0, freeAmt = 1;
+  // muzzle flash: a star sprite shown for a couple of frames
+  const starTex = (() => {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+    const g = cv.getContext('2d');
+    g.translate(64, 64);
+    const gr = g.createRadialGradient(0, 0, 0, 0, 0, 64);
+    gr.addColorStop(0, 'rgba(255,255,240,1)'); gr.addColorStop(0.2, 'rgba(255,220,120,1)'); gr.addColorStop(0.5, 'rgba(255,140,40,.8)'); gr.addColorStop(1, 'rgba(255,80,0,0)');
+    g.fillStyle = gr; g.beginPath();
+    for (let i = 0; i < 16; i++) { const r = i % 2 ? 16 : (i % 4 ? 46 : 64), a = i * Math.PI / 8; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+    g.closePath(); g.fill();
+    return new T.CanvasTexture(cv);
+  })();
+  const muzzle = new T.Sprite(new T.SpriteMaterial({map: starTex, blending: T.AdditiveBlending, depthWrite: false, transparent: true}));
+  muzzle.visible = false; muzzle.renderOrder = 4; scene.add(muzzle);
+  // God Save: a soft shaft of light from above
+  const rayTex = (() => {
+    const cv = document.createElement('canvas'); cv.width = 4; cv.height = 128;
+    const g = cv.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 128);
+    gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.35, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 4, 128); return new T.CanvasTexture(cv);
+  })();
+  const godRay = new T.Mesh(new T.CylinderGeometry(0.12, 0.5, 2.6, 24, 1, true), new T.MeshBasicMaterial({map: rayTex, color: 0xffe08a, transparent: true, opacity: 0, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide}));
+  godRay.visible = false; scene.add(godRay);
+  const V = (x = 0, y = 0, z = 0) => new T.Vector3(x, y, z);
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const randDir = () => V(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize();
+  const muzzlePos = () => { gun.updateMatrixWorld(true); return gun.userData.body.localToWorld(MUZZLE.clone()); };
+  const barrelDir = () => V(1, 0, 0).applyQuaternion(gun.userData.body.getWorldQuaternion(new T.Quaternion()));
+  const mouthPos = i => seats[i].group.userData.face.mouth.getWorldPosition(V());
+  const faceDir = i => V(0, 0, -1).applyQuaternion(seats[i].group.userData.head.getWorldQuaternion(new T.Quaternion()));
+  const tw = (dur, fn, opt) => fx.tween(dur, fn, opt);
 
   function seatAngle(i, n) { return Math.PI / 2 + i * 2 * Math.PI / n; }
   function polar(r, ang, y) { return new T.Vector3(Math.cos(ang) * r, y, Math.sin(ang) * r); }
@@ -485,8 +547,6 @@ function createScene(canvas, labelLayer) {
     });
     if (S.mode !== 'dice') want('deck', () => { const g = new T.Group(); for (let i = 0; i < 6; i++) { const c = makeCard(); c.position.y = i * 0.006; g.add(c); } return g; }, DECK_POS.clone(), flatQ(0.3, false));
 
-    if (S.gun && gunFx.gun !== S.gun) { gunFx = {gun: S.gun, flown: new Set()}; gun.userData.rounds.forEach(r => r.visible = false); }
-    if (!S.gun) { gun.userData.rounds.forEach(r => r.visible = false); flyers.forEach(f => scene.remove(f.mesh)); flyers.length = 0; }
     if (S.gun && S.gun.state === 'load') {
       const i = S.gun.pid, {out} = seatBasis(i);
       const eye = viewer != null ? camPos.clone() : camera.position.clone();
@@ -496,47 +556,170 @@ function createScene(canvas, labelLayer) {
       const away = gunTarget.pos.clone().sub(eye).normalize();
       const m = new T.Matrix4().lookAt(gunTarget.pos, gunTarget.pos.clone().add(away), new T.Vector3(0, 1, 0));
       gunTarget.quat = new T.Quaternion().setFromRotationMatrix(m).multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), Math.PI / 2)).multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 0, 1), 0.45));
-      // send each newly loaded round flying from the table into its chamber
-      for (let b = 0; b < S.gun.loaded; b++) {
-        if (gunFx.flown.has(b)) continue;
-        gunFx.flown.add(b);
-        const src = dyn.get(`b${i}-${b}`);
-        const from = src ? src.obj.position.clone() : out.clone().multiplyScalar(CARD_R - 0.42).setY(TOP);
-        const mesh = makeBullet(); mesh.position.copy(from); scene.add(mesh);
-        flyers.push({mesh, from, t0: clock.elapsedTime, dur: 0.38, idx: b});
-      }
-      gun.userData.spinning = false;
     } else if (S.gun) {
       const i = S.gun.pid, {out, side} = seatBasis(i);
       gun.userData.rounds.forEach((r, c) => { if (c < S.gun.bullets) r.visible = true; });
-      if (i === viewer) gunTarget.pos = camPos.clone().add(side.clone().multiplyScalar(0.16)).add(out.clone().multiplyScalar(-0.32)).setY(EYE_H - 0.06);
-      else gunTarget.pos = headPos(i).add(side.clone().multiplyScalar(0.36));
-      const tgt = i === viewer ? camPos.clone() : headPos(i);
+      // the muzzle rests against the temple (the barrel is 0.46 long, the head 0.27 wide)
+      // your own gun sits at the edge of view, barrel angled back toward your temple, so you see its side and hammer
+      if (i === viewer) gunTarget.pos = camPos.clone().add(side.clone().multiplyScalar(0.42)).add(out.clone().multiplyScalar(-0.62)).setY(EYE_H - 0.14);
+      else gunTarget.pos = headPos(i).add(side.clone().multiplyScalar(0.7)).add(out.clone().multiplyScalar(0.12)).setY(headPos(i).y + 0.17);
+      // aim at the temple: above the eyes and a little behind them
+      const tgt = i === viewer ? camPos.clone().add(out.clone().multiplyScalar(0.4)).add(side.clone().multiplyScalar(0.06)).setY(EYE_H + 0.06) : headPos(i).add(out.clone().multiplyScalar(0.1)).add(new T.Vector3(0, 0.15, 0));
       const m = new T.Matrix4().lookAt(gunTarget.pos, tgt, new T.Vector3(0, 1, 0));
       gunTarget.quat = new T.Quaternion().setFromRotationMatrix(m).multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), Math.PI / 2));
-      if (S.gun.state === 'bang' && !S.gun._fx) { S.gun._fx = true; flashT = 1; shake = 1; flash.position.copy(gunTarget.pos); }
-      if (S.gun.state === 'click' && !S.gun._fx) { S.gun._fx = true; shake = 0.15; seats[i].face.relief = clock.elapsedTime + 0.9; seats[i].face.happyUntil = clock.elapsedTime + 1.6; }
-      if (S.gun.state === 'godsave' && !S.gun._fx) {
-        S.gun._fx = true; shake = 0.3; godT = 1;
-        seats[i].face.relief = clock.elapsedTime + 1.2; seats[i].face.happyUntil = clock.elapsedTime + 3.2;
-        godLight.position.copy(headPos(i)).add(new T.Vector3(0, 0.9, 0));
-        halo.position.copy(headPos(i)).add(new T.Vector3(0, 0.42, 0)); halo.visible = i !== viewer;
-      }
-      gun.userData.spinning = S.gun.state === 'aim';
     } else {
       gunTarget.pos = new T.Vector3(-0.15, TOP + 0.035, -0.55);
       gunTarget.quat = new T.Quaternion().setFromEuler(new T.Euler(Math.PI / 2, 0, 0.6));
-      gun.userData.spinning = false;
+    }
+    // effects fire on phase changes, so they work whether the state object is reused (host) or new (guest)
+    const phase = S.gun ? S.gun.state : null, gpid = S.gun ? S.gun.pid : null;
+    if (phase !== ga.phase || gpid !== ga.pid) { const from = ga.phase; ga.phase = phase; ga.pid = gpid; gunEnter(S, phase, from); }
+    if (S.gun && S.gun.state === 'load') {
+      const i = S.gun.pid, {out} = seatBasis(i);
+      // send each newly loaded round flying from the table into its chamber
+      for (let b = 0; b < S.gun.loaded; b++) {
+        if (ga.flown.has(b)) continue;
+        ga.flown.add(b);
+        const src = dyn.get(`b${i}-${b}`);
+        const from = src ? src.obj.position.clone() : out.clone().multiplyScalar(CARD_R - 0.42).setY(TOP);
+        const mesh = makeBullet(); mesh.position.copy(from); scene.add(mesh);
+        flyers.push({mesh, from, t0: now(), dur: 0.38, idx: b});
+      }
+    }
+
+    // shot cam: push in on whoever holds the gun and narrow the lens; your own gun narrows it a little
+    fovMul = 1; fallOn = false;
+    if (S.gun && seats[S.gun.pid]) {
+      const i = S.gun.pid, st = S.gun.state;
+      if (i === viewer) { fovMul = st === 'aim' ? 0.86 : 0.93; fallOn = st === 'bang'; }
+      else if (!fx.reduced) {
+        const H = headPos(i);
+        const base = viewer != null ? seatBasis(viewer).out.multiplyScalar(SEAT_R + 0.2).setY(EYE_H + 0.05) : new T.Vector3(0, 4.4, 3.6);
+        if (st === 'load') { camPos = base.lerp(H, 0.1); camLook = new T.Vector3(0, TOP, 0).lerp(gunTarget.pos, 0.75); fovMul = 0.88; }
+        else { camPos = base.lerp(H, 0.3); camLook = H.add(new T.Vector3(0, -0.06, 0)); fovMul = st === 'aim' ? 0.62 : st === 'bang' ? 0.58 : 0.68; }
+      }
     }
 
     for (const [k, d] of dyn) if (!d.seen) { scene.remove(d.obj); dyn.delete(k); }
-    if (snap) { snap = false; camera.position.copy(camPos); curLook.copy(camLook); gun.position.copy(gunTarget.pos); gun.quaternion.copy(gunTarget.quat); }
+    if (snap) { snap = false; camBase.copy(camPos); camera.position.copy(camPos); curLook.copy(camLook); gun.position.copy(gunTarget.pos); gun.quaternion.copy(gunTarget.quat); }
+  }
+
+  /* ----- gun phases ----- */
+  // Timings follow game.js / liars.js shoot(): load 0.7 s + 0.42 s per round, aim 2.1–2.3 s,
+  // result 2 s (3.2 s God Save). The spin and hammer match the 'spin' sound in audio.js.
+  function gunEnter(S, phase, from) {
+    const U = gun.userData;
+    if (ga.sweat) { ga.sweat.stop(); ga.sweat = null; }
+    if (phase === 'load') {
+      ga.flown.clear(); U.rounds.forEach(r => r.visible = false); U.cyl.rotation.x = 0;
+      ga.drop = null; ga.kick = 0; ga.cock = 0;
+      tw(0.35, p => ga.open = p, {ease: fx.ease.back, delay: 0.25}); // swing the cylinder out
+    }
+    if (phase === 'aim') {
+      if (from !== 'load') { ga.drop = null; ga.kick = 0; U.cyl.rotation.x = 0; } // Liar modes skip loading
+      const o0 = ga.open; tw(0.12, p => ga.open = o0 * (1 - p), {ease: fx.ease.in}); // snap it shut
+      // spin: fast, slowing, landing exactly on a chamber; then the hammer cocks
+      ga.aimT0 = now() + 0.1; ga.spinFrom = U.cyl.rotation.x;
+      ga.spinTo = ga.spinFrom - Math.PI / 3 * (14 + Math.floor(Math.random() * 6));
+      fx.after(1.45, () => { if (ga.phase === 'aim') tw(0.09, p => ga.cock = p, {ease: fx.ease.out}); });
+      const pid = S.gun.pid;
+      if (pid !== viewerSeat && seats[pid]) ga.sweat = fx.emit(2.4, 2.6, () => sweatDrop(pid, 0.55));
+    }
+    if (phase === 'click' || phase === 'bang' || phase === 'godsave') {
+      // trigger, then the hammer falls
+      ga.cock = Math.max(ga.cock, 1); ga.trig = 1;
+      tw(0.035, p => ga.cock = 1 - p, {ease: fx.ease.in});
+      tw(0.3, p => ga.trig = 1 - p, {delay: 0.3});
+      if (phase === 'bang') fxBang(S.gun.pid); else if (phase === 'click') fxClick(S.gun.pid); else fxGod(S.gun.pid);
+    }
+    if (phase === null) {
+      ga.drop = null; ga.kick = ga.cock = ga.trig = ga.open = 0;
+      U.rounds.forEach(r => r.visible = false);
+      flyers.forEach(f => scene.remove(f.mesh)); flyers.length = 0;
+    }
+  }
+
+  function sweatDrop(i, power) {
+    const off = V(rand(-1, 1), rand(0.2, 1), rand(-1, 0.3)).normalize().applyQuaternion(seats[i].group.userData.head.getWorldQuaternion(new T.Quaternion()));
+    return {pos: headPos(i).addScaledVector(off, 0.25), vel: off.multiplyScalar(power * rand(0.6, 1.2)).add(V(0, power * 0.7, 0)),
+      life: rand(0.6, 0.9), size: [0.045, 0.035], color: 0xcfe6ff, alpha: 0.9, cell: 'drop', rot: 0, grav: 4, add: false, fadeIn: 0.02};
+  }
+
+  function fxBang(i) {
+    const t = now(), mp = muzzlePos(), dir = barrelDir(), self = i === viewerSeat;
+    fx.hitStop(0.09, 0.28, 1.1);
+    flashT = 1; shake = fx.reduced ? 0.3 : 1; flash.position.copy(mp);
+    lampKick = 1; flickerUntil = t + 0.5;
+    muzzle.position.copy(mp).addScaledVector(dir, 0.04); muzzle.material.rotation = Math.random() * 6.28;
+    muzzle.scale.setScalar(self ? 0.3 : 0.6); muzzle.visible = true;
+    fx.after(0.06, () => { muzzle.visible = false; });
+    // sparks and a hot glow at the muzzle, then smoke that hangs and rises
+    fx.burst(30, () => ({pos: mp, vel: dir.clone().multiplyScalar(rand(0.4, 2)).add(randDir().multiplyScalar(rand(1, 2.4))), life: rand(0.25, 0.6),
+      size: [rand(0.03, 0.05), 0.01], color: Math.random() < 0.5 ? 0xffd27a : 0xff8a30, cell: 'spark', drag: 2.5, grav: 3, fadeIn: 0.01}));
+    fx.burst(5, () => ({pos: mp.clone().add(randDir().multiplyScalar(0.05)), vel: randDir().multiplyScalar(0.3), life: rand(0.12, 0.22),
+      size: [0.25, 0.45], color: 0xff9a40, alpha: 0.9, cell: 'glow', fadeIn: 0.01}));
+    fx.burst(16, () => ({pos: mp.clone().add(randDir().multiplyScalar(0.04)), vel: randDir().multiplyScalar(rand(0.3, 0.9)).add(V(0, 0.25, 0)),
+      life: rand(1.6, 3), size: [0.06, rand(0.3, 0.55)], color: 0x8a8580, alpha: rand(0.35, 0.6), cell: 'smoke', drag: 2.2, grav: -0.12, spin: rand(-0.6, 0.6), add: false, fadeIn: 0.02}));
+    fx.emit(7, 2.4, () => ({pos: muzzlePos(), vel: V(rand(-0.03, 0.03), rand(0.15, 0.3), rand(-0.03, 0.03)), life: rand(1.4, 2.2),
+      size: [0.03, rand(0.14, 0.24)], color: 0x9a948c, alpha: 0.3, cell: 'smoke', drag: 0.6, grav: -0.05, spin: rand(-0.5, 0.5), add: false}));
+    // recoil, then the gun slips out of the hand and clatters onto the table
+    tw(0.4, p => ga.kick = 1 - p, {ease: fx.ease.out});
+    const {out, side, ang} = seatBasis(i);
+    const to = out.clone().multiplyScalar(CARD_R - 0.3).addScaledVector(side, -0.3).setY(TOP + 0.035);
+    const toQ = new T.Quaternion().setFromEuler(new T.Euler(Math.PI / 2, 0, -ang + 1.1));
+    fx.after(0.45, () => {
+      if (ga.phase !== 'bang') return;
+      const from = gun.position.clone(), fromQ = gun.quaternion.clone();
+      ga.drop = {pos: from.clone(), quat: fromQ.clone()};
+      tw(0.6, (e, p) => {
+        if (!ga.drop) return;
+        ga.drop.pos.lerpVectors(from, to, fx.ease.out(p)); ga.drop.pos.y = from.y + (to.y - from.y) * fx.ease.bounce(p);
+        ga.drop.quat.copy(fromQ).slerp(toQ, fx.ease.out(p));
+      }, {ease: fx.ease.linear});
+    });
+    // the shooter's head snaps away from the gun; everyone else flinches
+    const f = seats[i] && seats[i].face;
+    if (f) {
+      f.hitT = t;
+      const ax = V(1, 0, 0).applyQuaternion(seats[i].group.userData.torso.getWorldQuaternion(new T.Quaternion()));
+      f.hitSide = ax.dot(side) > 0 ? 1 : -1;
+    }
+    seats.forEach((s, j) => { if (j !== i) s.face.startle = t + 0.6 + Math.random() * 0.2; });
+    fallOn = self;
+  }
+
+  function fxClick(i) {
+    const t = now(), f = seats[i] && seats[i].face;
+    shake = 0.15;
+    if (f) { f.relief = t + 0.9; f.happyUntil = t + 1.6; }
+    if (i === viewerSeat || !f) return;
+    fx.burst(9, () => sweatDrop(i, 1.1));
+    // a big exhale
+    fx.after(0.7, () => {
+      if (!seats[i]) return;
+      const m = mouthPos(i), d = faceDir(i);
+      fx.burst(6, () => ({pos: m.clone(), vel: d.clone().multiplyScalar(rand(0.35, 0.6)).add(randDir().multiplyScalar(0.08)).add(V(0, -0.08, 0)), life: rand(0.9, 1.3),
+        size: [0.04, rand(0.18, 0.26)], color: 0xe2ddd2, alpha: 0.28, cell: 'smoke', drag: 2.2, grav: -0.06, spin: rand(-1, 1), add: false}));
+    });
+  }
+
+  function fxGod(i) {
+    const t = now(), f = seats[i] && seats[i].face; if (!f) return;
+    shake = 0.3; godT = 1;
+    f.relief = t + 1.2; f.happyUntil = t + 3.2;
+    const H = headPos(i), self = i === viewerSeat;
+    godLight.position.copy(H).add(V(0, 0.9, 0));
+    halo.position.copy(H).add(V(0, 0.42, 0)); halo.visible = !self;
+    godRay.position.copy(H).add(V(0, 1.05, 0)); godRay.visible = !self;
+    // gold dust drifting down through the light
+    fx.emit(24, 2.8, () => ({pos: H.clone().add(V(rand(-0.4, 0.4), rand(0.8, 1.5), rand(-0.4, 0.4))), vel: V(rand(-0.05, 0.05), rand(-0.35, -0.15), rand(-0.05, 0.05)),
+      life: rand(1.6, 2.6), size: [rand(0.025, 0.045), 0.01], color: Math.random() < 0.5 ? 0xffe08a : 0xfff4c8, cell: 'spark', spin: rand(-2, 2), fadeIn: 0.2}));
   }
 
   // expressions triggered by game events
   function react(pid, kind) {
     const s = seats[pid]; if (!s) return;
-    const t = clock.elapsedTime;
+    const t = now();
     if (kind === 'talk') s.face.talkUntil = t + 0.7;
     if (kind === 'happy') s.face.happyUntil = t + 2.2;
   }
@@ -574,7 +757,8 @@ function createScene(canvas, labelLayer) {
     const w = canvas.clientWidth, h = canvas.clientHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    camera.fov = w / h < 0.8 ? 74 : 60;
+    baseFov = w / h < 0.8 ? 74 : 60;
+    camera.fov = baseFov * fovMul;
     camera.updateProjectionMatrix();
   }
   root.addEventListener('resize', resize);
@@ -589,38 +773,69 @@ function createScene(canvas, labelLayer) {
   }
 
   function frame() {
-    const dt = Math.min(0.05, clock.getDelta()), t = clock.elapsedTime;
+    const realDt = Math.min(0.05, clock.getDelta());
+    const dt = fx.step(realDt, camera, renderer), t = now(); // dt is 0 during hit-stop, small in slow motion
     const k = d => root.__instant ? 1 : 1 - Math.exp(-dt * d);
     for (const d of dyn.values()) { d.obj.position.lerp(d.pos, k(d.speed)); d.obj.quaternion.slerp(d.quat, k(d.speed)); }
-    gun.position.lerp(gunTarget.pos, k(6)); gun.quaternion.slerp(gunTarget.quat, k(6));
-    if (gun.userData.spinning) gun.userData.cyl.rotation.x += dt * 16;
+    // gun: placement, then its moving parts
+    const U = gun.userData;
+    if (ga.drop) { gun.position.copy(ga.drop.pos); gun.quaternion.copy(ga.drop.quat); }
+    else { gun.position.lerp(gunTarget.pos, k(6)); gun.quaternion.slerp(gunTarget.quat, k(6)); }
+    if (ga.phase === 'aim') {
+      const p = Math.max(0, Math.min(1, (t - ga.aimT0) / 1.3));
+      U.cyl.rotation.x = ga.spinFrom + (ga.spinTo - ga.spinFrom) * (1 - (1 - p) ** 3);
+      // the hand shakes harder the longer it waits
+      const amp = dt ? 0.002 + 0.006 * Math.min(1, Math.max(0, t - ga.aimT0) / 1.8) : 0;
+      gun.position.x += rand(-amp, amp); gun.position.y += rand(-amp, amp); gun.position.z += rand(-amp, amp);
+    }
+    U.crane.rotation.x = ga.open * 1.25;
+    U.hammer.rotation.z = HAMMER_REST + (HAMMER_COCKED - HAMMER_REST) * ga.cock;
+    U.trigger.rotation.z = -ga.trig * 0.5;
+    U.body.rotation.z = ga.kick * 0.9; U.body.position.x = -ga.kick * 0.07;
     for (let f = flyers.length - 1; f >= 0; f--) {
       const fl = flyers[f], p = Math.min(1, (t - fl.t0) / fl.dur), e = p * p * (3 - 2 * p);
-      const to = gun.userData.rounds[fl.idx].getWorldPosition(new T.Vector3());
+      const to = U.rounds[fl.idx].getWorldPosition(new T.Vector3());
       fl.mesh.position.lerpVectors(fl.from, to, e); fl.mesh.position.y += Math.sin(p * Math.PI) * 0.25;
       fl.mesh.rotation.z = p * 4;
-      if (p >= 1) { gun.userData.rounds[fl.idx].visible = true; scene.remove(fl.mesh); flyers.splice(f, 1); }
+      if (p >= 1) {
+        U.rounds[fl.idx].visible = true; scene.remove(fl.mesh); flyers.splice(f, 1);
+        // index the cylinder so the next empty chamber comes to the top
+        const r0 = U.cyl.rotation.x, r1 = -(fl.idx + 1) * Math.PI / 3;
+        tw(0.12, q => { if (ga.phase === 'load') U.cyl.rotation.x = r0 + (r1 - r0) * q; }, {delay: 0.05, ease: fx.ease.out});
+      }
     }
     seats.forEach((s, i) => { if (s.group.visible) animateFace(s.group, s.face, t, dt, lookTargetFor(i)); });
-    lampGroup.rotation.z = Math.sin(t * 0.7) * 0.03;
-    lamp.position.x = Math.sin(t * 0.7) * -0.1;
-    flash.intensity = flashT * 30; flashT = Math.max(0, flashT - dt * 4);
-    godLight.intensity = godT * 9 * (0.85 + Math.sin(t * 9) * 0.15); halo.material.opacity = Math.min(1, godT * 1.6);
+    // lamp: gentle sway, kicked hard by a gunshot; the bulb stutters after it
+    lampKick = Math.max(0, lampKick - dt * 0.35);
+    const sway = Math.sin(t * 0.7) * 0.03 + Math.sin(t * 2.6) * 0.22 * lampKick;
+    lampGroup.rotation.z = sway; lamp.position.x = -sway * 3.3;
+    flash.intensity = flashT * 14; flashT = Math.max(0, flashT - dt * 4);
+    godLight.intensity = godT * 5.5 * (0.85 + Math.sin(t * 9) * 0.15); halo.material.opacity = Math.min(1, godT * 1.6);
+    godRay.material.opacity = Math.min(0.5, godT * 0.7); godRay.rotation.y += dt * 0.3;
     halo.rotation.z += dt * 1.5; halo.position.y += Math.sin(t * 3) * 0.0008;
-    godT = Math.max(0, godT - dt * 0.33); if (godT === 0) halo.visible = false;
-    lamp.intensity = 2.4 * (0.96 + Math.random() * 0.04);
-    camera.position.lerp(camPos, k(boardView ? 4 : 3));
+    godT = Math.max(0, godT - dt * 0.33); if (godT === 0) halo.visible = godRay.visible = false;
+    lamp.intensity = 2.4 * (0.96 + Math.random() * 0.04) * (t < flickerUntil && Math.random() < 0.4 ? 0.2 : 1);
+    // camera: eased base position + lens, then free look, then offsets (death fall, shake, fear)
+    camBase.lerp(camPos, k(boardView ? 4 : 3));
+    camera.position.copy(camBase);
     curLook.lerp(camLook, k(3));
-    const free = viewerSeat != null && !boardView;
-    const look = curLook.clone().sub(camera.position).applyAxisAngle(new T.Vector3(0, 1, 0), -mouse.x * (free ? 1.6 : 0.2)).add(camera.position);
-    look.y -= mouse.y * (free ? 1.2 : 0.2);
-    if (shake > 0) { camera.position.add(new T.Vector3((Math.random() - .5) * shake * 0.08, (Math.random() - .5) * shake * 0.08, 0)); shake = Math.max(0, shake - dt * 2.5); }
+    const fovT = baseFov * fovMul;
+    if (Math.abs(camera.fov - fovT) > 0.01) { camera.fov += (fovT - camera.fov) * k(fovMul < camera.fov / baseFov ? 1.4 : 2.5); camera.updateProjectionMatrix(); }
+    const S = lastState;
+    freeAmt += ((viewerSeat != null && !boardView && !(S && S.gun) ? 1 : 0) - freeAmt) * (root.__instant ? 1 : 1 - Math.exp(-realDt * 3));
+    const look = curLook.clone().sub(camera.position).applyAxisAngle(Y, -mouse.x * (0.2 + 1.4 * freeAmt)).add(camera.position);
+    look.y -= mouse.y * (0.2 + 1.0 * freeAmt);
+    fall += ((fallOn ? 1 : 0) - fall) * k(fallOn ? 2.2 : 1);
+    if (fall > 0.001) { camera.position.y -= 0.5 * fx.ease.out(fall); look.y -= 0.9 * fall; }
+    if (shake > 0) { camera.position.add(new T.Vector3((Math.random() - .5) * shake * 0.08, (Math.random() - .5) * shake * 0.08, 0)); shake = Math.max(0, shake - realDt * 2.5); }
+    if (S && S.gun && S.gun.pid === viewerSeat && S.gun.state === 'aim' && !fx.reduced) camera.position.add(randDir().multiplyScalar(0.003));
     camera.lookAt(look);
+    if (fall > 0.001) camera.rotateZ(0.45 * fx.ease.out(fall));
     renderer.render(scene, camera);
     updateLabels();
     requestAnimationFrame(frame);
   }
-  root.__pokerDebug = {camera, scene, seats: () => seats};
+  root.__pokerDebug = {camera, scene, fx, seats: () => seats};
   resize(); requestAnimationFrame(frame);
 
   return {

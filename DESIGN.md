@@ -105,14 +105,24 @@ Low-poly, built from primitives, chunky proportions (big head, small body), seat
 ### 3.3 Table objects
 - **Cards:** 0.28 × 0.40 units, cream face with large rank and suit, red-black diagonal-stripe back. They slide from the deck when dealt and flip at showdown.
 - **Bullets:** brass case + copper tip, standing upright in a 3-per-row cluster in front of each player. One clink per bullet added.
-- **Revolver:** rests in the middle of the table. It has a real 6-chamber cylinder (holes visible on the back face).
+- **Revolver:** rests in the middle of the table. It has a real 6-chamber cylinder (holes visible on the back face) on a crane that swings out for loading, a hammer and a trigger that move, a top rib, front sight and ejector rod. The steel is only half metallic: there is no environment map, so a fully metallic gun renders black.
 - **Reload sequence** (every shot):
-  1. **Open (0.7 s):** the gun floats up in front of the shooter, rear of the cylinder turned toward the viewer, barrel tilted up.
-  2. **Load (0.42 s per bullet):** each bet bullet lifts off the table in a small arc and drops into the next chamber. A brass round appears in that chamber with a "tink".
-  3. **Spin & raise (2.1 s):** the cylinder spins, the hammer cocks, and the gun moves to the shooter's temple (or beside your camera if it's you). The shooter's face goes to fear.
-  4. **Result (2 s, 3.2 s for God Save):** click / GOD SAVE / BANG.
-  - **God Save effect:** golden radial flash over the screen, a warm light from above the survivor, a spinning gold halo over their head, "GOD SAVE!" text popping in with a glow, and a choir chord with bells. The survivor smiles with relief.
+  1. **Open (0.7 s):** the gun floats up in front of the shooter, rear of the cylinder turned toward the viewer, barrel tilted up. The cylinder swings out (with a little overshoot).
+  2. **Load (0.42 s per bullet):** each bet bullet lifts off the table in a small arc and drops into the chamber at the top. A brass round appears with a "tink" and the cylinder indexes 60° to bring the next empty chamber up.
+  3. **Spin & raise (2.1 s; 2.3 s in the Liar modes, which skip loading):** the cylinder snaps shut, spins fast and slows over 1.3 s, landing exactly on a chamber; the hammer cocks at 1.45 s, in time with the `spin` sound. The gun moves to the shooter's temple (above and behind the eyes), or to the edge of your view, angled back toward your head, if it's you. The hand shakes harder the longer it waits. The shooter's face goes to fear and sweat drops fly off their head.
+  4. **Result (2 s, 3.2 s for God Save):** trigger pulls, hammer falls, then click / GOD SAVE / BANG (see §3.4).
+  - **God Save effect:** golden radial flash over the screen, a warm light and a soft shaft of light from above the survivor, gold dust drifting down through it, a spinning gold halo over their head, "GOD SAVE!" text popping in with a glow, and a choir chord with bells. The survivor smiles with relief.
   - HUD mirror: a 2D cylinder (6 chambers) in the center fills chamber by chamber ("Rusty loads 2 / 3"), then spins ("Rusty pulls the trigger · 3 of 6").
+
+### 3.4 Effects **[Design]**
+Juice is seasoning: everything here exists to make the gun moment land. Effects run in `fx.js`; `scene.js` decides how they look. Particles are camera-facing sprites from one canvas atlas (glow, smoke, spark, drop). Additive ones stand in for bloom; we do **not** use real post-processing bloom (too heavy on phones). On touch devices the particle counts drop to about 55%. With *prefers-reduced-motion*, hit-stop, the shot cam push and most of the shake are off.
+
+| Moment | Effect |
+|---|---|
+| **Aim** | Sweat drops fly off the shooter's head (about 2 per second). Screen edges close in with a dark vignette that pulses with the 700 ms heartbeat (redder when it's your gun). |
+| **BANG** | **Hit-stop** 90 ms (the impact frame holds), then **slow motion** at 0.28× easing back to normal over 1.1 s. A star-shaped muzzle flash for ~60 ms, an orange point light, ~30 sparks, a hot glow, a burst of grey smoke, then the barrel keeps smoking for 2.4 s. The gun kicks up (recoil), then slips out of the hand and bounces onto the table in front of the shooter. The shooter's head snaps away from the gun and stays tipped; the body slumps. Everyone else flinches (eyes wide, a little jump). The lamp swings hard and the bulb stutters for 0.5 s. "BANG!" slams in large and tilted, settling with a red glow. **Cartoon, no blood.** |
+| **Click** | Hammer snap, small shake, a spray of sweat drops, then a big exhale puff from the mouth after 0.7 s. "Click." pops in. |
+| **God Save** | See §3.3. |
 
 ---
 
@@ -123,7 +133,8 @@ Low-poly, built from primitives, chunky proportions (big head, small body), seat
 | **Seat view** | A human is playing | Eye height in your chair, looking at the table. Mouse or drag rotates the view ±90° to look at neighbors. |
 | **Board view** | Toggle with the **Board** button or key **B** | Camera rises above the table and looks down at the community cards. Smooth 0.6 s move. A 2D strip of the board also shows in the HUD. |
 | **Spectator** | Bots only | High three-quarter view of the whole table. |
-| **Shot cam** **[Future]** | A gun event | Brief dolly toward the shooter's face. |
+| **Shot cam** | A gun event on someone else | While loading, the view drifts toward the gun. Once aimed, the camera pushes 30% of the way toward the shooter's head and the lens narrows to ~62% (a slow zoom), so the face fills the screen. Free look is off until the gun is down. Skipped with *reduced motion*. |
+| **Your gun** | A gun event on you | Lens narrows a little (tunnel vision), slight tremble. On BANG the view drops and rolls onto the table, then recovers once the gun is down. |
 
 
 
@@ -211,7 +222,7 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 | Each bullet loaded | Brass "tink" + chamber clack (one per bullet, 420 ms apart) |
 | Gun raised | Cylinder spin: 12–16 clicks slowing down, then the hammer cocks |
 | Click (survived) | Sharp dry hammer click, then a breath of relief (filtered noise) |
-| BANG | Noise burst with falling low-pass + 55 Hz thump + synthetic reverb tail; screen shake + red flash |
+| BANG | Noise burst with falling low-pass + 90→35 Hz thump, two low-passed slapback echoes (110 ms, 260 ms), then ear ringing at ~4 kHz (1.8 s, or 3.2 s and louder when it was your gun) |
 | God Save | Dry hammer click, then a soft detuned choir chord (C major) with a cascade of high bells |
 | Hand won | Short rising Rhodes arpeggio |
 | Your turn | Soft two-tone bell (880 / 1320 Hz) |
@@ -230,7 +241,8 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 - [x] Showdown results board
 - [x] Reload sequence: bullets fly into the chambers; HUD cylinder mirror
 - [x] Board view toggle
-- [ ] **[Future]** Shot cam dolly, slow-motion on BANG
+- [x] Shot cam dolly, hit-stop and slow motion on BANG (§3.4)
+- [x] Muzzle flash, sparks, gun smoke, sweat, exhale, God Save light shaft and gold dust (§3.4)
 - [ ] **[Future]** Smoke particles in the lamp cone
 - [ ] **[Future]** Character hands that actually hold the gun
 - [x] Online tables: lobby list, host / join by code or invite link (see §8)
@@ -257,7 +269,9 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 - `engine.js`: card model, hand evaluator (best 5 of 7), Monte Carlo equity. No DOM.
 - `game.js`: Bullet Poker rules and turn flow; emits `onChange(state)` and `onEvent(type, data)`. No DOM.
 - `liars.js`: Liar's Deck and Liar's Dice, same interface as `game.js` (`state.mode` tells them apart). No DOM.
-- `scene.js`: Three.js scene, characters, faces, camera modes, portrait renderer. Reads state only.
+- `scene.js`: Three.js scene, characters, faces, camera modes, portrait renderer, what each effect looks like. Reads state only.
+- `fx.js`: effects runtime used by `scene.js`: scaled time (hit-stop, slow motion), tweens with easing, and pooled particles in two `THREE.Points` clouds (additive and alpha-blended) with a 4-cell canvas sprite atlas. No game logic.
+- `dev/fxlab.html`: dev page that plays gun moments on a local table with a chosen outcome (click / bang / God Save), shooter and view, no network. `?slow=4` plays everything 4× slower; `window.__fxSlow = 0` freezes the scene for inspection.
 - `audio.js`: Web Audio synth for music and SFX.
 - `net.js`: lobby and table networking (both over MQTT), reliable encrypted links, state filtering per seat.
 - `index.html`: profile, lobby, room, HUD, input, and the wiring between the files above.

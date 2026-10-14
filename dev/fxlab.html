@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FX Lab</title>
+<!-- Dev page: plays gun moments on a local table with a chosen outcome, no network.
+     Serve the repo root (python3 -m http.server) and open /dev/fxlab.html. -->
+<style>
+:root{--bg:#0d0a08;--fg:#f1e8d4;--line:#4a3726;--lamp:#e2a64a;--blood:#c8412f}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#labels{position:fixed;inset:0;pointer-events:none}
+.label3d{position:absolute;left:0;top:0;font-size:12px;background:rgba(0,0,0,.55);padding:3px 7px;border-radius:6px;white-space:nowrap}
+.label3d .bul,.label3d .st,.label3d .d{margin-left:6px}
+.panel{position:fixed;left:12px;top:12px;z-index:20;display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:calc(100% - 24px);background:rgba(13,10,8,.85);border:1px solid var(--line);border-radius:10px;padding:8px}
+.panel select,.panel button{font:inherit;background:#1a120c;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+.panel button.go{border-color:var(--lamp);color:var(--lamp)}
+#msg{position:fixed;left:0;right:0;top:42%;text-align:center;font:italic 900 64px Georgia,serif;pointer-events:none;z-index:15;text-shadow:0 4px 30px #000}
+.vignette{position:fixed;inset:0;pointer-events:none;z-index:8;opacity:0;transition:opacity .8s ease;background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 38%,rgba(8,4,2,.55) 70%,rgba(4,2,1,.92) 100%)}
+.vignette.on{opacity:1;animation:hb .7s ease-out infinite}
+@keyframes hb{0%{transform:scale(1)}12%{transform:scale(.965)}30%{transform:scale(1)}44%{transform:scale(.98)}62%{transform:scale(1)}}
+.redflash{position:fixed;inset:0;background:var(--blood);opacity:0;pointer-events:none;z-index:9}
+.redflash.on{animation:rf 1.2s ease-out}
+@keyframes rf{0%{opacity:.75}100%{opacity:0}}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="labels"></div>
+<div class="vignette" id="vignette"></div>
+<div class="redflash" id="redflash"></div>
+<div id="msg"></div>
+<div class="panel">
+  <label>Mode <select id="mode"><option value="poker">Poker (load + aim)</option><option value="liar">Liar timing (aim only)</option></select></label>
+  <label>View <select id="viewer"><option value="0">Seat 0</option><option value="">Spectator</option></select></label>
+  <label>Shooter <select id="shooter"><option>1</option><option>2</option><option>3</option><option>0</option></select></label>
+  <label>Bullets <select id="bullets"><option>1</option><option selected>2</option><option>3</option><option>6</option></select></label>
+  <button class="go" data-out="click">Click</button>
+  <button class="go" data-out="bang">Bang</button>
+  <button class="go" data-out="godsave">God Save</button>
+  <button id="reset">Reset</button>
+</div>
+<script src="../assets/vendor/three.min.js"></script>
+<script src="../engine.js"></script>
+<script src="../fx.js"></script>
+<script src="../scene.js"></script>
+<script src="../audio.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const audio = PokerAudio.createAudio(); PokerAudio.bindUnlock(audio);
+const scene3d = PokerScene.createScene($('view'), $('labels'));
+const animals = ['fox', 'pig', 'bear', 'bull'];
+const names = ['Rusty', 'Truffle', 'Bruno', 'Tank'];
+let S, busy = false;
+const viewer = () => $('viewer').value === '' ? null : +$('viewer').value;
+function fresh() {
+  S = {
+    mode: 'poker', handNo: 1, dealer: 0, board: [], toAct: null, showdown: false, winners: null, gun: null,
+    players: animals.map((a, i) => ({id: i, name: names[i], animal: a, alive: true, folded: false, bet: 2, shots: 0,
+      hole: [{hidden: true}, {hidden: true}], lastAction: ''})),
+  };
+  scene3d.setup(S.players); render();
+}
+const render = () => scene3d.update(S, viewer(), false);
+// ?slow=4 plays everything 4x slower (sounds stay at normal speed)
+const SLOW = +(new URLSearchParams(location.search).get('slow') || 1); window.__fxSlow = 1 / SLOW;
+const sleep = ms => new Promise(r => setTimeout(r, ms * SLOW));
+function vignette(on) { $('vignette').classList.toggle('on', on); }
+function flashRed() { const f = $('redflash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
+const msg = (t, c) => { $('msg').textContent = t; $('msg').style.color = c || ''; };
+
+// mirrors shoot() in game.js / liars.js
+async function fire(out) {
+  if (busy) return; busy = true;
+  const p = S.players[+$('shooter').value], k = +$('bullets').value;
+  if (!p.alive) { busy = false; return; }
+  if ($('mode').value === 'poker') {
+    p.bet = k;
+    S.gun = {pid: p.id, bullets: k, loaded: 0, state: 'load'};
+    audio.play('loadStart'); audio.tension(true); vignette(true); render();
+    await sleep(700);
+    for (let b = 1; b <= k; b++) { S.gun.loaded = b; audio.play('loadBullet'); render(); await sleep(420); }
+    S.gun.state = 'aim'; audio.play('spin'); render();
+    await sleep(2100);
+  } else {
+    S.gun = {pid: p.id, bullets: 1, loaded: 1, state: 'aim'};
+    audio.play('spin'); audio.tension(true); vignette(true); render();
+    await sleep(2300);
+  }
+  S.gun.state = out; audio.tension(false); vignette(false);
+  if (out === 'bang') { p.alive = false; audio.play('bang', p.id === viewer()); flashRed(); msg('BANG!', '#c8412f'); }
+  else if (out === 'godsave') { audio.play('godSave'); msg('GOD SAVE!', '#ffe08a'); }
+  else { audio.play('click'); msg('Click.', '#8cbc72'); }
+  render();
+  await sleep(out === 'godsave' ? 3200 : 2000);
+  S.gun = null; p.bet = 1; msg(''); render();
+  busy = false;
+}
+document.querySelectorAll('[data-out]').forEach(b => b.onclick = () => fire(b.dataset.out));
+$('reset').onclick = () => { if (!busy) fresh(); };
+$('viewer').onchange = render;
+fresh();
+window.__lab = {fire, get S() { return S; }, scene3d};
+</script>
+</body>
+</html>

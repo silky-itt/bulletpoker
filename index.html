@@ -117,7 +117,11 @@ h3{font-size:17px}
 .rules b{color:var(--lamp)}
 details summary{cursor:pointer;font-weight:700}
 .shot{font-family:var(--f-display);font-weight:900;font-style:italic;font-size:clamp(44px,11vw,96px);line-height:1;text-shadow:0 4px 30px rgba(0,0,0,.8);text-align:center}
-.shot.dead{color:var(--blood)}.shot.live{color:var(--ok)}.shot.aim{color:var(--fg);font-size:clamp(20px,4vw,30px)}
+.shot.dead{color:var(--blood);text-shadow:0 0 30px rgba(200,65,47,.7),0 4px 30px rgba(0,0,0,.9);animation:bangIn .55s cubic-bezier(.2,1.7,.35,1) both}
+@keyframes bangIn{0%{transform:scale(2.4) rotate(-9deg);opacity:0;filter:blur(6px)}25%{opacity:1;filter:none}100%{transform:scale(1) rotate(-4deg)}}
+.shot.live{animation:clickIn .35s cubic-bezier(.2,1.6,.4,1) both}
+@keyframes clickIn{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+.shot.live{color:var(--ok)}.shot.aim{color:var(--fg);font-size:clamp(20px,4vw,30px)}
 .results{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 76px);display:grid;justify-items:center;gap:0;pointer-events:none;z-index:3;animation:resIn .45s ease-out both}
 @keyframes resIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
 .rboard{position:relative;display:flex;gap:10px;padding:14px 22px;border:2px solid var(--gold);background:rgba(18,12,8,.82);margin-bottom:18px}
@@ -176,6 +180,11 @@ details summary{cursor:pointer;font-weight:700}
 .seatcard.empty{opacity:.5;border-style:dashed}
 .portrait:disabled{cursor:not-allowed}
 @media (max-width:620px){ .seats4{grid-template-columns:repeat(2,minmax(0,1fr))} }
+/* gun moment: the edges close in and pulse with the heartbeat (audio.js beats every 700 ms) */
+.vignette{position:fixed;inset:0;pointer-events:none;z-index:8;opacity:0;transition:opacity .8s ease;background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 38%,rgba(8,4,2,.55) 70%,rgba(4,2,1,.92) 100%)}
+.vignette.on{opacity:1;animation:hb .7s ease-out infinite}
+.vignette.self{background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 28%,rgba(30,4,2,.6) 62%,rgba(10,1,0,.95) 100%)}
+@keyframes hb{0%{transform:scale(1)}12%{transform:scale(.965)}30%{transform:scale(1)}44%{transform:scale(.98)}62%{transform:scale(1)}}
 .redflash{position:fixed;inset:0;background:var(--blood);opacity:0;pointer-events:none;z-index:9}
 .redflash.on{animation:rf 1.2s ease-out}
 @keyframes rf{0%{opacity:.75}100%{opacity:0}}
@@ -208,6 +217,7 @@ details summary{cursor:pointer;font-weight:700}
 
 <canvas id="view" aria-label="3D poker table"></canvas>
 <div id="labels"></div>
+<div class="vignette" id="vignette"></div>
 <div class="redflash" id="redflash"></div>
 <div class="goldflash" id="goldflash"></div>
 <div id="hud"></div>
@@ -218,6 +228,7 @@ details summary{cursor:pointer;font-weight:700}
 <script src="engine.js"></script>
 <script src="game.js"></script>
 <script src="liars.js"></script>
+<script src="fx.js"></script>
 <script src="scene.js"></script>
 <script src="audio.js"></script>
 <script src="net.js"></script>
@@ -403,7 +414,7 @@ function leaveSession(){
   if (location.hash) history.replaceState(null, '', location.pathname);
   showLobby();
 }
-function resetTable(){ audio.tension(false); boardOpen = false; if (scene3d) { scene3d.setBoardView(false); scene3d.setup([]); } $hud.innerHTML = ''; }
+function resetTable(){ audio.tension(false); vignette(null); boardOpen = false; if (scene3d) { scene3d.setBoardView(false); scene3d.setup([]); } $hud.innerHTML = ''; }
 
 /* ---------- screen 3: the room (waiting to start) ---------- */
 function renderRoom(){
@@ -495,12 +506,13 @@ function onEvent(type, d, S){
     case 'allin': audio.play('allin'); talk(); break;
     case 'fold': audio.play('fold'); talk(); break;
     case 'switch': audio.play('switch'); break;
-    case 'loadStart': audio.play('loadStart'); audio.tension(true); break;
+    case 'loadStart': audio.play('loadStart'); audio.tension(true); vignette(d.pid); break;
     case 'loadBullet': audio.play('loadBullet'); break;
-    case 'aim': audio.play('spin'); break;
-    case 'click': audio.play('click'); audio.tension(false); break;
-    case 'godsave': audio.play('godSave'); audio.tension(false); flashGold(); break;
-    case 'bang': audio.play('bang'); audio.tension(false); if (d.pid === viewer) setTimeout(() => audio.play('lose'), 600); flashRed(); break;
+    case 'aim': audio.play('spin'); if (S.mode === 'deck' || S.mode === 'dice') audio.tension(true); vignette(d.pid); break;
+    case 'click': audio.play('click'); audio.tension(false); vignette(null); break;
+    case 'godsave': audio.play('godSave'); audio.tension(false); vignette(null); flashGold(); break;
+    case 'bang': audio.play('bang', d.pid === viewer); audio.tension(false); vignette(null); if (d.pid === viewer) setTimeout(() => audio.play('lose'), 600); flashRed(); break;
+    case 'gunDown': vignette(null); break;
     case 'win': case 'showdown': audio.play('win'); if (scene3d) d.ids.forEach(id => scene3d.react(id, 'happy')); break;
     case 'yourTurn': if (d.pid === viewer) audio.play('yourTurn'); break;
     case 'gameOver': audio.play(d.winner === viewer ? 'win' : 'lose'); break;
@@ -512,6 +524,7 @@ function onEvent(type, d, S){
   }
 }
 function flashGold(){ const f = document.getElementById('goldflash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
+function vignette(pid){ const v = document.getElementById('vignette'); v.classList.toggle('on', pid != null); v.classList.toggle('self', pid != null && pid === viewer); }
 function flashRed(){ const f = document.getElementById('redflash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
 
 /* ---------- showdown board + cylinder ---------- */
