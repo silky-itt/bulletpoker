@@ -216,12 +216,22 @@ function createScene(canvas, labelLayer) {
 
   // card textures
   const texCache = new Map();
+  const texKey = c => !c || c.hidden ? 'back' : c.k ? 'L' + c.k : c.id;
+  const KIND_NAME = {K: 'KING', Q: 'QUEEN', A: 'ACE', J: 'JOKER'};
   function cardTex(c) {
-    const key = c ? c.id : 'back';
+    const key = texKey(c);
     if (texCache.has(key)) return texCache.get(key);
     const cv = document.createElement('canvas'); cv.width = 256; cv.height = 356;
     const g = cv.getContext('2d');
-    if (!c) {
+    if (c && c.k) { // Liar's Deck: one big rank, no suits; the Joker is wild
+      const joker = c.k === 'J';
+      g.fillStyle = '#f1e8d4'; g.fillRect(0, 0, 256, 356);
+      g.strokeStyle = joker ? '#b8322a' : '#8a6a3a'; g.lineWidth = 6; g.strokeRect(12, 12, 232, 332);
+      g.fillStyle = joker ? '#b8322a' : '#1d1611'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = '900 170px Georgia, serif'; g.fillText(joker ? '★' : c.k, 128, 160);
+      g.font = '900 34px Georgia, serif'; g.fillText(KIND_NAME[c.k], 128, 300);
+      g.textAlign = 'left'; g.textBaseline = 'top'; g.font = '900 44px Georgia, serif'; g.fillText(joker ? '★' : c.k, 24, 20);
+    } else if (!c) {
       g.fillStyle = '#5a2019'; g.fillRect(0, 0, 256, 356);
       g.strokeStyle = '#8a4a33'; g.lineWidth = 6;
       for (let i = -356; i < 356; i += 22) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 356, 356); g.stroke(); }
@@ -249,7 +259,7 @@ function createScene(canvas, labelLayer) {
     return m;
   }
   function setFace(m, c) {
-    const id = c.hidden ? 'back' : c.id;
+    const id = texKey(c);
     if (m.userData.cardId === id) return;
     m.userData.cardId = id; m.userData.face.map = m.userData.face.emissiveMap = cardTex(c.hidden ? null : c); m.userData.face.needsUpdate = true;
   }
@@ -290,6 +300,36 @@ function createScene(canvas, labelLayer) {
     return g;
   }
 
+  // Liar's Dice: ivory dice (opposite faces sum to 7) and a leather cup
+  const DIE = 0.075;
+  const pipTex = v => {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#efe6d2'; g.fillRect(0, 0, 128, 128);
+    g.fillStyle = v === 1 ? '#a3241c' : '#1d1611';
+    const P = {1: [[2, 2]], 2: [[1, 1], [3, 3]], 3: [[1, 1], [2, 2], [3, 3]], 4: [[1, 1], [3, 1], [1, 3], [3, 3]], 5: [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]], 6: [[1, 1], [3, 1], [1, 2], [3, 2], [1, 3], [3, 3]]}[v];
+    for (const [x, y] of P) { g.beginPath(); g.arc(x * 32, y * 32, v === 1 ? 17 : 12, 0, Math.PI * 2); g.fill(); }
+    const t = new T.CanvasTexture(cv); t.encoding = T.sRGBEncoding; return t;
+  };
+  const DIE_FACES = [3, 4, 1, 6, 2, 5]; // BoxGeometry order: +x, -x, +y, -y, +z, -z
+  let dieMats = null;
+  function makeDie() {
+    dieMats = dieMats || DIE_FACES.map(v => new T.MeshStandardMaterial({map: pipTex(v), roughness: 0.35}));
+    const m = new T.Mesh(new T.BoxGeometry(DIE, DIE, DIE), dieMats); m.castShadow = true; return m;
+  }
+  // rotation that puts face v on top
+  const X = new T.Vector3(1, 0, 0), Y = new T.Vector3(0, 1, 0), Z = new T.Vector3(0, 0, 1);
+  const UP = {1: [X, 0], 6: [X, Math.PI], 3: [Z, Math.PI / 2], 4: [Z, -Math.PI / 2], 2: [X, -Math.PI / 2], 5: [X, Math.PI / 2]};
+  const dieQ = (v, yaw) => { const [ax, a] = UP[v] || UP[1]; return new T.Quaternion().setFromAxisAngle(Y, yaw).multiply(new T.Quaternion().setFromAxisAngle(ax, a)); };
+  function makeCup() {
+    const leather = std(0x4a2516, 0.7), band = std(0xc8963c, 0.3, 0.8);
+    const g = new T.Group();
+    const body = new T.Mesh(new T.CylinderGeometry(0.15, 0.19, 0.22, 24), leather); g.add(body);
+    const ring = new T.Mesh(new T.TorusGeometry(0.188, 0.008, 6, 32), band); ring.rotation.x = Math.PI / 2; ring.position.y = -0.1; g.add(ring);
+    g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    return g;
+  }
+
   // dynamic objects eased toward targets
   const dyn = new Map();
   const DECK_POS = new T.Vector3(0.9, TOP + 0.02, 0.2);
@@ -311,7 +351,7 @@ function createScene(canvas, labelLayer) {
   let camPos = new T.Vector3(0, 4.4, 3.6), camLook = new T.Vector3(0, TOP, 0);
   const curLook = camLook.clone();
   let mouse = {x: 0, y: 0}, viewerSeat = null, shake = 0, flashT = 0, boardView = false;
-  let lastState = null, lastHide = false, snap = true;
+  let lastState = null, lastHide = false, snap = true, picked = new Set();
   let gunFx = {gun: null, flown: new Set()};
   const flyers = [];
 
@@ -323,7 +363,7 @@ function createScene(canvas, labelLayer) {
     for (const d of dyn.values()) scene.remove(d.obj);
     dyn.clear();
     labelLayer.innerHTML = '';
-    snap = true; boardView = false;
+    snap = true; boardView = false; lastState = null; // the old game's state doesn't fit the new seats
     seats = ps.map((p, i) => {
       const ang = seatAngle(i, ps.length);
       const group = makeAnimal(p.animal);
@@ -344,10 +384,57 @@ function createScene(canvas, labelLayer) {
   const flatQ = (yaw, faceUp) => new T.Quaternion().setFromEuler(new T.Euler(faceUp ? 0 : Math.PI, yaw, 0, 'YXZ'));
   const headPos = i => seats[i].group.userData.head.getWorldPosition(new T.Vector3());
 
+  /* ----- Liar's Deck: hands, the face-down pile, the last play (revealed on a Liar call) ----- */
+  const deckKey = (S, c) => `L${S.round}-${c.id}`;
+  function deckSeat(S, p, i, viewer, out, side, yaw) {
+    const n = p.hand.length;
+    p.hand.forEach((c, k) => {
+      let pos, quat;
+      if (i === viewer) {
+        pos = out.clone().multiplyScalar(CARD_R - 0.05).add(side.clone().multiplyScalar(((n - 1) / 2 - k) * 0.24)).setY(TOP + 0.05 + (picked.has(c.id) ? 0.07 : 0));
+        quat = flatQ(yaw + Math.PI, true).multiply(new T.Quaternion().setFromAxisAngle(X, 0.35));
+        if (picked.has(c.id)) pos.add(out.clone().multiplyScalar(-0.08));
+      } else {
+        pos = out.clone().multiplyScalar(CARD_R).add(side.clone().multiplyScalar((k - (n - 1) / 2) * 0.2)).setY(TOP + 0.004 + k * 0.004);
+        quat = flatQ(yaw + Math.PI, false);
+      }
+      setFace(want(deckKey(S, c), makeCard, pos, quat, {from: DECK_POS}), c);
+    });
+  }
+  function deckCenter(S, viewer) {
+    S.pile.forEach((c, k) => {
+      const pos = new T.Vector3(Math.sin(c.id * 2.3) * 0.05, TOP + 0.004 + k * 0.004, Math.cos(c.id * 1.7) * 0.05);
+      setFace(want(deckKey(S, c), makeCard, pos, flatQ(c.id * 0.9, false)), {hidden: true});
+    });
+    if (S.last && seats[S.last.pid]) {
+      const {out, side, ang} = seatBasis(S.last.pid);
+      const face = viewer != null ? -seatBasis(viewer).ang - Math.PI / 2 + Math.PI : 0;
+      S.last.cards.forEach((c, k) => {
+        const pos = out.clone().multiplyScalar(0.5).add(side.clone().multiplyScalar((k - (S.last.cards.length - 1) / 2) * 0.3)).setY(TOP + 0.08 + k * 0.004);
+        setFace(want(deckKey(S, c), makeCard, pos, flatQ(S.reveal ? face : -ang - Math.PI / 2, S.reveal)), S.reveal ? c : {hidden: true});
+      });
+    }
+  }
+  /* ----- Liar's Dice: five dice per seat, under a cup unless they are yours or revealed ----- */
+  const DICE_SPOTS = [[-0.09, -0.05], [0, -0.06], [0.09, -0.05], [-0.045, 0.05], [0.05, 0.05]];
+  function diceSeat(S, p, i, viewer, out, side, yaw) {
+    if (!p.alive && !p.dice.length) return;
+    const centre = out.clone().multiplyScalar(CARD_R - 0.15);
+    p.dice.forEach((v, k) => {
+      const [sx, ox] = DICE_SPOTS[k];
+      const pos = centre.clone().add(side.clone().multiplyScalar(sx)).add(out.clone().multiplyScalar(ox)).setY(TOP + DIE / 2);
+      want(`D${S.round}-${i}-${k}`, makeDie, pos, dieQ(v || 1, yaw + k * 0.4), {from: centre.clone().setY(TOP + 0.5), speed: 7});
+    });
+    const covered = i !== viewer && !S.reveal && p.alive;
+    const cupPos = covered ? centre.clone().setY(TOP + 0.11) : centre.clone().add(side.clone().multiplyScalar(-0.38)).add(out.clone().multiplyScalar(0.12)).setY(TOP + 0.11);
+    want(`cup-${i}`, makeCup, cupPos, new T.Quaternion(), {from: centre.clone().setY(TOP + 0.11), speed: 6});
+  }
+
   function update(S, viewer, hideViewerCards) {
     lastState = S; viewerSeat = viewer; lastHide = hideViewerCards;
     for (const d of dyn.values()) d.seen = false;
 
+    if (viewer != null && !seats[viewer]) viewer = null;
     if (viewer != null) {
       const {out} = seatBasis(viewer);
       if (boardView) { camPos = out.clone().multiplyScalar(0.75).setY(2.75); camLook = new T.Vector3(0, TOP, 0); }
@@ -363,6 +450,8 @@ function createScene(canvas, labelLayer) {
       seat.face.fear = !!(S.gun && S.gun.pid === i && (S.gun.state === 'aim' || S.gun.state === 'load'));
       seat.face.confident = p.alive && !p.folded && p.bet >= 3;
       const yaw = -ang - Math.PI / 2;
+      if (S.mode === 'deck') return deckSeat(S, p, i, viewer, out, side, yaw);
+      if (S.mode === 'dice') return diceSeat(S, p, i, viewer, out, side, yaw);
 
       p.hole.forEach((c, k) => {
         const mine = i === viewer && !hideViewerCards;
@@ -388,12 +477,13 @@ function createScene(canvas, labelLayer) {
       }
     });
 
-    S.board.forEach((c, k) => {
+    if (S.mode === 'deck') deckCenter(S, viewer);
+    if (!S.mode || S.mode === 'poker') S.board.forEach((c, k) => {
       const pos = new T.Vector3((k - 2) * 0.33, TOP + 0.004, 0);
       const quat = viewer != null ? flatQ(-seatBasis(viewer).ang - Math.PI / 2 + Math.PI, true) : flatQ(0, true);
       setFace(want('c' + c.id, makeCard, pos, quat, {from: DECK_POS}), c);
     });
-    want('deck', () => { const g = new T.Group(); for (let i = 0; i < 6; i++) { const c = makeCard(); c.position.y = i * 0.006; g.add(c); } return g; }, DECK_POS.clone(), flatQ(0.3, false));
+    if (S.mode !== 'dice') want('deck', () => { const g = new T.Group(); for (let i = 0; i < 6; i++) { const c = makeCard(); c.position.y = i * 0.006; g.add(c); } return g; }, DECK_POS.clone(), flatQ(0.3, false));
 
     if (S.gun && gunFx.gun !== S.gun) { gunFx = {gun: S.gun, flown: new Set()}; gun.userData.rounds.forEach(r => r.visible = false); }
     if (!S.gun) { gun.userData.rounds.forEach(r => r.visible = false); flyers.forEach(f => scene.remove(f.mesh)); flyers.length = 0; }
@@ -468,7 +558,12 @@ function createScene(canvas, labelLayer) {
       const won = S.winners && S.winners.includes(p.id);
       el.className = 'label3d' + (turn ? ' turn' : '') + (!p.alive ? ' dead' : '') + (won ? ' won' : '');
       const status = !p.alive ? 'Out' : turn ? 'Thinking...' : p.lastAction;
-      const html = `<b>${escapeHTML(p.name)}</b>${S.dealer === i ? '<i class="d">D</i>' : ''}<span class="bul">${'●'.repeat(p.bet)}<span class="emp">${'○'.repeat(Math.max(0, 6 - p.bet))}</span></span><span class="st">${escapeHTML(status || '')}</span>`;
+      // poker: bullets loaded; liar modes: trigger pulls used (×) of 6
+      const pips = S.mode === 'deck' || S.mode === 'dice'
+        ? `<span class="bul" title="Trigger pulls">${'×'.repeat(p.shots)}<span class="emp">${'○'.repeat(Math.max(0, 6 - p.shots))}</span></span>`
+        : `<span class="bul">${'●'.repeat(p.bet)}<span class="emp">${'○'.repeat(Math.max(0, 6 - p.bet))}</span></span>`;
+      const extra = S.mode === 'deck' && p.alive && !turn && !p.lastAction ? `${p.hand.length} cards` : '';
+      const html = `<b>${escapeHTML(p.name)}</b>${S.dealer === i ? '<i class="d">D</i>' : ''}${pips}<span class="st">${escapeHTML(status || extra)}</span>`;
       if (el._html !== html) { el.innerHTML = html; el._html = html; }
     });
   }
@@ -489,7 +584,7 @@ function createScene(canvas, labelLayer) {
     const S = lastState; if (!S) return null;
     if (S.gun) return S.gun.pid === i ? gun.position.clone() : (S.gun.pid === viewerSeat ? camera.position.clone() : headPos(S.gun.pid));
     if (S.toAct != null && S.toAct !== i) return S.toAct === viewerSeat ? camera.position.clone() : headPos(S.toAct);
-    if (S.showdown) return new T.Vector3(0, TOP, 0);
+    if (S.showdown || S.reveal) return new T.Vector3(0, TOP, 0);
     return viewerSeat != null ? camera.position.clone() : new T.Vector3(0, TOP, 0);
   }
 
@@ -530,6 +625,8 @@ function createScene(canvas, labelLayer) {
 
   return {
     setup, update, resize, react,
+    // Liar's Deck: lift the cards the viewer has selected (by card id).
+    setPicked(ids) { picked = new Set(ids); if (lastState) update(lastState, viewerSeat, lastHide); },
     setBoardView(on) { boardView = on; if (lastState) update(lastState, viewerSeat, lastHide); },
     get boardView() { return boardView; },
   };

@@ -116,6 +116,19 @@ function createAudio() {
     win() { const t = now(); [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => keys(t + i * 0.09, f, 0.7, 0.16, sfxBus)); },
     yourTurn() { const t = now(); tone(t, 880, 0.35, {gain: 0.12}); tone(t + 0.12, 1320, 0.45, {gain: 0.1}); },
     ui() { tone(now(), 1500, 0.025, {gain: 0.05}); },
+    // dice rattling in a leather cup, then landing on felt
+    dice(count = 1) {
+      const t = now(), shakes = 6 + Math.min(4, count) * 2;
+      for (let i = 0; i < shakes; i++) noise(t + i * 0.045 + Math.random() * 0.02, 0.02, {type: 'bandpass', freq: 2600 + Math.random() * 1600, q: 4, gain: 0.3});
+      const land = t + shakes * 0.045 + 0.08;
+      for (let i = 0; i < 5; i++) { SFX.knock(land + i * 0.05 + Math.random() * 0.03); }
+    },
+    // "Liar!": a slammed table and a low brass stab
+    liar() {
+      const t = now();
+      tone(t, 70, 0.35, {to: 40, gain: 0.7, attack: 0.001}); noise(t, 0.12, {type: 'lowpass', freq: 1200, gain: 0.5, attack: 0.001});
+      [146.8, 155.6, 220].forEach(f => tone(t + 0.05, f, 0.8, {type: 'sawtooth', gain: 0.06, attack: 0.02}));
+    },
     lose() { const t = now(); keys(t, 110, 1.6, 0.2, sfxBus); keys(t, 103.8, 1.6, 0.15, sfxBus); },
   };
 

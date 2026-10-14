@@ -144,6 +144,8 @@ details summary{cursor:pointer;font-weight:700}
 .cylsvg .ch.pop{animation:pop .3s ease-out}
 @keyframes pop{from{transform:scale(1.6)}to{transform:scale(1)}}
 .cylsvg .pr{fill:#b0603a}
+.cylsvg .ch.spent{fill:#2a2a2a;stroke:#3a3a3a}
+.cylsvg .cur{fill:none;stroke:var(--lamp);stroke-width:2.5}
 @media (max-width:620px){ .rrow{grid-template-columns:auto minmax(0,1fr);gap:4px 12px}.rname{grid-column:1/-1;text-align:left;font-size:15px}.card2d.res{width:42px;height:60px}.card2d.res .r{font-size:17px}.card2d.res .s{font-size:21px}.rboard{gap:6px;padding:10px 12px}.rhand{font-size:18px} }
 .goldflash{position:fixed;inset:0;background:radial-gradient(circle at 50% 35%,rgba(255,226,140,.85),rgba(255,226,140,0) 60%);opacity:0;pointer-events:none;z-index:9}
 .goldflash.on{animation:gf 2.6s ease-out}
@@ -183,6 +185,24 @@ details summary{cursor:pointer;font-weight:700}
   kbd{display:none}
   .hide-sm{display:none}
 }
+/* Liar's Deck / Liar's Dice */
+.card2d.lc .r{top:50%;left:0;right:0;text-align:center;transform:translateY(-58%);font-size:34px}
+.card2d.lc .s{left:0;right:0;bottom:6px;text-align:center;font:700 8px/1 var(--f-mono);letter-spacing:.08em}
+.card2d.mini.lc .r{font-size:24px}.card2d.mini.lc .s{font-size:6.5px;bottom:5px}
+.card2d.res.lc .r{font-size:34px;left:0;top:50%}
+.card2d.back{background:repeating-linear-gradient(45deg,#5a2019 0 8px,#6e2a20 8px 16px);border:2px solid #c99a5a}
+.tablecard{display:grid;justify-items:center;gap:4px}
+.die2d{font-size:52px;line-height:1;color:var(--paper);display:inline-block;width:40px;text-align:center}
+.die2d.one{color:#e0574a}.die2d.hid{font:700 22px/40px var(--f-mono);color:var(--muted);border:1.5px dashed var(--line);border-radius:7px;height:40px}
+.die2d.miss{opacity:.3}.die2d.hit{color:var(--gold)}
+.bidpick{display:grid;gap:8px;justify-items:center}
+.btn.small.facebtn{font-size:30px;line-height:1;padding:2px 8px}
+.modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.modebtn{background:var(--bg);border:1.5px solid var(--line);border-radius:9px;padding:10px;color:var(--fg);text-align:left;display:grid;gap:2px}
+.modebtn b{font-family:var(--f-display);font-size:16px}.modebtn span{font-size:12px;color:var(--muted);line-height:1.3}
+.modebtn.sel{border-color:var(--lamp);box-shadow:0 0 0 2px var(--lamp)}
+.modebtn:disabled{cursor:default}.modebtn:disabled:not(.sel){opacity:.5}
+@media (max-width:620px){ .modes{grid-template-columns:1fr} .die2d{font-size:34px;width:34px} }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 
@@ -197,6 +217,7 @@ details summary{cursor:pointer;font-weight:700}
 <script src="assets/vendor/mqtt.min.js"></script>
 <script src="engine.js"></script>
 <script src="game.js"></script>
+<script src="liars.js"></script>
 <script src="scene.js"></script>
 <script src="audio.js"></script>
 <script src="net.js"></script>
@@ -211,7 +232,8 @@ const STREET_NAME = PokerGame.STREET_NAME;
 let profile = {name: '', animal: 'bull'};
 try { const p = JSON.parse(localStorage.getItem('bp-profile')); if (p && CH[p.animal]) profile = p; } catch {}
 const saveProfile = () => { try { localStorage.setItem('bp-profile', JSON.stringify(profile)); } catch {} };
-let roomPrefs = {name: '', isPublic: true};
+let roomPrefs = {name: '', isPublic: true, mode: 'poker'};
+try { const m = localStorage.getItem('bp-mode'); if (NET.MODES.includes(m)) roomPrefs.mode = m; } catch {}
 
 let scene3d = null;
 try { scene3d = PokerScene.createScene(document.getElementById('view'), document.getElementById('labels')); } catch (e) { console.error(e); }
@@ -246,13 +268,13 @@ const inviteLink = code => location.origin + location.pathname + '#' + code;
 function renderProfile(){
   $hud.innerHTML = '';
   $ov.innerHTML = `<div class="overlay dim"><div class="panel">
-    <div><h1>Bullet Poker</h1><p class="sub">Texas Hold'em where you bet bullets. Six chambers. Last one standing wins.</p></div>
+    <div><h1>Bullet Poker</h1><p class="sub">Bluff or bleed. Bullet Poker, Liar's Deck and Liar's Dice, played with a six-chamber revolver. Last one standing wins.</p></div>
     ${scene3d ? '' : '<p class="sub" style="color:var(--blood)">This browser could not start WebGL, so the 3D table cannot be drawn.</p>'}
     <label class="field"><span class="label">Your name</span><input type="text" id="pName" maxlength="14" placeholder="e.g. Nam" value="${esc(profile.name)}" autocomplete="nickname"></label>
     <div><span class="label">Your character</span>
       <div class="portraits" role="radiogroup" aria-label="Character">${Object.keys(CH).map(k => portraitBtn(k, {sel: profile.animal === k, data: `data-a="${k}"`})).join('')}</div></div>
     <div class="row" style="justify-content:flex-start"><button class="btn" id="toLobby">Enter the bar</button>${notice ? `<span class="sub" style="color:var(--blood)">${esc(notice)}</span>` : ''}</div>
-    <details><summary>How to play</summary>${RULES}</details>
+    <details><summary>How to play</summary>${Object.keys(RULES).map(m => `<h3 style="margin:12px 0 6px">${MODE_INFO[m].name}</h3>${RULES[m]}`).join('')}</details>
   </div></div>`;
   const nameEl = document.getElementById('pName');
   nameEl.oninput = () => { profile.name = nameEl.value; saveProfile(); };
@@ -262,7 +284,7 @@ function renderProfile(){
     notice = ''; showLobby();
   });
 }
-const RULES = `<ol class="rules">
+const RULES_POKER = `<ol class="rules">
   <li>2–4 players, each on their own device. One player hosts a table; the others join it.</li>
   <li>Every hand, each player starts with <b>1 bullet</b> loaded. Two hole cards, five community cards, four betting rounds.</li>
   <li><b>Call</b> matches the highest load. <b>Raise</b> adds 1 bullet. <b>All-in</b> goes straight to 6.</li>
@@ -272,6 +294,25 @@ const RULES = `<ol class="rules">
   <li><b>Switch</b> (once per match): swap a hole card for one of 4 / 3 / 2 offered cards (pre-flop / flop / turn). No All-in on that turn.</li>
   <li>Keys: <b>F</b> fold, <b>C</b> check/call, <b>R</b> raise, <b>A</b> all-in, <b>S</b> switch, <b>B</b> board view, <b>M</b> change music.</li>
 </ol>`;
+const RULES = {
+  poker: RULES_POKER,
+  deck: `<ol class="rules">
+  <li>20 cards: 6 Kings, 6 Queens, 6 Aces and 2 <b>Jokers</b> (wild). Everyone gets 5. Each round names a <b>table card</b>: Kings, Queens or Aces.</li>
+  <li>On your turn, play <b>1–3 cards face down</b> and claim they are all the table card. Lie if you have to.</li>
+  <li>Or call <b>LIAR!</b> on the player before you. Their cards flip: if any is not the table card or a Joker, they lied and pull the trigger. If they told the truth, you pull it.</li>
+  <li>Every player has their own revolver with <b>one round</b> in a random chamber. Each pull moves the cylinder on: 1 in 6, then 1 in 5, ... then certain death.</li>
+  <li>After a Liar call, new cards and a new table card. Last one standing wins.</li>
+  <li>Keys: <b>1–5</b> pick cards, <b>Enter</b> play, <b>L</b> Liar, <b>M</b> change music.</li>
+</ol>`,
+  dice: `<ol class="rules">
+  <li>Everyone has <b>5 dice</b> under a cup. You see only your own. <b>Ones are wild</b>: they count as any face.</li>
+  <li>On your turn, bid how many dice on the whole table show a face, e.g. <b>"four 5s"</b>. Raise the quantity, or keep it and pick a higher face.</li>
+  <li>Or call <b>LIAR!</b> on the last bid. All cups lift: if there are fewer than bid, the bidder pulls the trigger. Otherwise you do.</li>
+  <li>Same revolver as Liar's Deck: one round, and every pull makes the next one likelier.</li>
+  <li>After a Liar call, everyone rolls again. Last one standing wins.</li>
+  <li>Keys: <b>↑ ↓</b> quantity, <b>2–6</b> face, <b>Enter</b> bid, <b>L</b> Liar, <b>M</b> change music.</li>
+</ol>`,
+};
 
 /* ---------- screen 2: lobby (open tables, host, join by code) ---------- */
 function showLobby(){
@@ -284,7 +325,7 @@ function lobbyStatusText(){
 function roomListHTML(){
   return lobbyRooms.length ? lobbyRooms.map(r => {
     const full = r.players >= NET.MAX_SEATS, playing = r.status === 'playing';
-    return `<div class="roomrow"><div class="rinfo"><b>${esc(r.name)}</b><span>Host: ${esc(r.host)}</span></div>
+    return `<div class="roomrow"><div class="rinfo"><b>${esc(r.name)}</b><span>${MODE_INFO[r.mode].name} · Host: ${esc(r.host)}</span></div>
       <span class="pill ${playing ? 'busy' : ''}">${playing ? 'In game' : `${r.players}/${NET.MAX_SEATS}`}</span>
       <button class="btn small" data-join="${esc(r.code)}" ${full || playing ? 'disabled' : ''}>Join</button></div>`;
   }).join('') : '<div class="empty">No public tables right now. Host one!</div>';
@@ -331,7 +372,7 @@ function renderLobby(){
 function hostTable(){
   notice = '';
   try {
-    const net = NET.hostRoom({me: profile, roomName: roomPrefs.name, isPublic: roomPrefs.isPublic,
+    const net = NET.hostRoom({me: profile, roomName: roomPrefs.name, isPublic: roomPrefs.isPublic, mode: roomPrefs.mode,
       onRoom: room => { if (session && session.net === net) { session.room = room; if (!session.game) renderRoom(); } },
       onError: msg => { notice = msg; leaveSession(); }});
     session = {mode: 'host', net, room: net.room, seat: 0};
@@ -389,6 +430,8 @@ function renderRoom(){
       return `<div class="seatcard ${s.key === myKey ? 'me' : ''}">${portraits[s.animal] ? `<img src="${portraits[s.animal]}" alt="${CH[s.animal].animal}">` : ''}
         <b>${esc(s.name)}</b><span>${CH[s.animal].name}${s.host ? ' · Host' : ''}${s.key === myKey ? ' · You' : ''}</span></div>`;
     }).join('')}</div>
+    <div><span class="label">Game</span><div class="modes" role="radiogroup" aria-label="Game mode">${NET.MODES.map(m => `<button class="modebtn ${r.mode === m ? 'sel' : ''}" data-mode="${m}" role="radio" aria-checked="${r.mode === m}" ${isHost ? '' : 'disabled'}><b>${MODE_INFO[m].name}</b><span>${MODE_INFO[m].blurb}</span></button>`).join('')}</div>
+      <details style="margin-top:8px"><summary>How to play ${MODE_INFO[r.mode].name}</summary>${RULES[r.mode]}</details></div>
     ${me ? `<details id="picker" ${pickerOpen ? 'open' : ''}><summary>Change character</summary><div class="portraits" style="margin-top:10px">${Object.keys(CH).map(k => portraitBtn(k, {sel: me.animal === k, taken: taken.has(k), data: `data-pick="${k}"`})).join('')}</div></details>` : ''}
     <div class="row" style="justify-content:flex-start">
       ${isHost ? `<button class="btn" id="start" ${canStart ? '' : 'disabled'}>Start game (${r.seats.length} player${r.seats.length === 1 ? '' : 's'})</button>` : ''}
@@ -404,6 +447,11 @@ function renderRoom(){
   });
   onClick('leave', leaveSession);
   onClick('start', startHostedGame);
+  if (isHost) $ov.querySelectorAll('[data-mode]').forEach(el => el.onclick = () => {
+    audio.play('ui'); roomPrefs.mode = el.dataset.mode;
+    try { localStorage.setItem('bp-mode', roomPrefs.mode); } catch {}
+    session.net.setMode(el.dataset.mode);
+  });
   $ov.querySelectorAll('[data-pick]').forEach(el => el.onclick = () => {
     audio.play('ui');
     session.net.pickAnimal(el.dataset.pick);
@@ -414,8 +462,9 @@ function renderRoom(){
 function startHostedGame(){
   const net = session.net;
   const seats = net.seatsForGame();
-  const game = PokerGame.createGame(seats, S => { net.pushState(S); render(); }, {onEvent: (t, d, S) => { net.pushEvent(t, d); onEvent(t, d, S); }});
-  session.game = game; session.inGame = true; viewer = 0; sw = null;
+  const make = {poker: PokerGame.createGame, deck: LiarsGame.createDeck, dice: LiarsGame.createDice}[net.mode];
+  const game = make(seats, S => { net.pushState(S); render(); }, {onEvent: (t, d, S) => { net.pushEvent(t, d); onEvent(t, d, S); }});
+  session.game = game; session.inGame = true; viewer = 0; sw = null; turnKey = '';
   net.attach(game);
   $ov.innerHTML = '';
   if (scene3d) scene3d.setup(game.state.players);
@@ -425,7 +474,7 @@ function onGuestState(S, seat){
   if (!session) return;
   const fresh = session.gameId !== S.gameId;
   session.S = S; session.seat = seat; session.inGame = true; viewer = seat;
-  if (fresh) { session.gameId = S.gameId; sw = null; boardOpen = false; $ov.innerHTML = ''; if (scene3d) { scene3d.setBoardView(false); scene3d.setup(S.players); } }
+  if (fresh) { session.gameId = S.gameId; sw = null; turnKey = ''; boardOpen = false; $ov.innerHTML = ''; if (scene3d) { scene3d.setBoardView(false); scene3d.setup(S.players); } }
   render();
 }
 const curState = () => session && (session.mode === 'host' ? session.game && session.game.state : session.S);
@@ -455,6 +504,11 @@ function onEvent(type, d, S){
     case 'win': case 'showdown': audio.play('win'); if (scene3d) d.ids.forEach(id => scene3d.react(id, 'happy')); break;
     case 'yourTurn': if (d.pid === viewer) audio.play('yourTurn'); break;
     case 'gameOver': audio.play(d.winner === viewer ? 'win' : 'lose'); break;
+    case 'roll': audio.play('dice', d.count); break;
+    case 'play': audio.play('board', d.n); talk(); break;
+    case 'bid': audio.play('bet', 1); talk(); break;
+    case 'liar': audio.play('liar'); talk(); if (scene3d && S.result) scene3d.react(S.result.accused, 'talk'); break;
+    case 'reveal': audio.play(S.mode === 'dice' ? 'dice' : 'switch', 2); break;
   }
 }
 function flashGold(){ const f = document.getElementById('goldflash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
@@ -480,17 +534,23 @@ let lastLoaded = 0;
 function cylinderHTML(g, p){
   const holes = Array.from({length: 6}, (_, c) => {
     const a = (c * 60 - 90) * Math.PI / 180, x = Math.cos(a) * 31, y = Math.sin(a) * 31;
+    if (g.spent != null) return `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><circle class="ch ${c < g.spent ? 'spent' : ''}" r="12"/>${c === g.spent ? '<circle class="cur" r="15"/>' : ''}</g>`;
     const full = g.state === 'load' ? c < g.loaded : c < g.bullets;
     const pop = g.state === 'load' && c === g.loaded - 1 && g.loaded !== lastLoaded;
     return `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><circle class="ch ${full ? 'full' : ''} ${pop ? 'pop' : ''}" r="12"/>${full ? '<circle class="pr" r="4"/>' : ''}</g>`;
   }).join('');
   lastLoaded = g.state === 'load' ? g.loaded : 0;
-  const caption = g.state === 'load' ? `${esc(p.name)} loads ${g.loaded} / ${g.bullets}` : `${esc(p.name)} pulls the trigger · ${g.bullets} of 6`;
+  const caption = g.spent != null ? `${esc(p.name)} pulls the trigger · 1 in ${6 - g.spent}`
+    : g.state === 'load' ? `${esc(p.name)} loads ${g.loaded} / ${g.bullets}` : `${esc(p.name)} pulls the trigger · ${g.bullets} of 6`;
   return `<div class="cylwrap"><svg class="cylsvg ${g.state === 'aim' ? 'spin' : ''}" viewBox="-60 -60 120 120" aria-hidden="true">
     <circle r="56" fill="#2c2c2e" stroke="#6a6a6a" stroke-width="3"/>${[0,1,2,3,4,5].map(c => { const a = (c * 60 - 60) * Math.PI / 180; return `<circle cx="${(Math.cos(a)*50).toFixed(1)}" cy="${(Math.sin(a)*50).toFixed(1)}" r="5" fill="#1a1a1a"/>`; }).join('')}
     <circle r="9" fill="#151515"/>${holes}</svg><div class="shot aim">${caption}</div></div>`;
 }
 function musicIntensity(S){
+  if (S.mode === 'deck' || S.mode === 'dice') {
+    const worst = Math.max(...S.players.filter(p => p.alive).map(p => p.shots));
+    return Math.min(3, (S.reveal ? 2 : S.mode === 'deck' ? (S.last ? 1 : 0) : (S.bid ? 1 : 0)) + (worst >= 3 ? 1 : 0));
+  }
   if (S.showdown) return 2;
   if (S.currentBet >= 5) return 3;
   if (S.currentBet >= 3) return 2;
@@ -498,30 +558,13 @@ function musicIntensity(S){
   return 0;
 }
 
-/* ---------- HUD ---------- */
-function render(){
-  const S = curState();
-  if (!S || !session.inGame) return;
-  const needCover = false;
-  if (scene3d) scene3d.update(S, viewer, needCover);
-  const me = viewer != null ? S.players[viewer] : null;
-  const myTurn = S.awaiting != null && S.awaiting === viewer && !S.gun && !needCover;
-
-  let center = '';
-  if (S.gun) {
-    const p = S.players[S.gun.pid];
-    center = S.gun.state === 'load' || S.gun.state === 'aim' ? cylinderHTML(S.gun, p)
-      : S.gun.state === 'bang' ? `<div class="shot dead">BANG!</div>`
-      : S.gun.state === 'godsave' ? `<div class="godsave"><div class="shot god">GOD SAVE!</div><div class="label">${esc(p.name)} survived six bullets · 5% chance</div></div>` : `<div class="shot live">Click.</div>`;
-  }
+/* ---------- per-mode HUD pieces: {label, controls, results, extra} ---------- */
+function pokerHUD(S, me, myTurn){
   const results = S.showdown && S.winners && !S.gun ? resultsHTML(S) : '';
-  audio.setIntensity(musicIntensity(S));
-
   const board = boardOpen ? `<div class="chip boardstrip"><div class="label">Community cards · ${STREET_NAME[S.street] || ''}</div><div class="row">${Array.from({length:5}, (_, i) => card2d(S.board[i], 'mini')).join('')}</div></div>` : '';
-
   let controls = '';
   if (me && !S.over) {
-    const best = me.hole.length === 2 && !needCover ? (S.board.length >= 3 ? E.bestHand(me.hole.concat(S.board)).name : (me.hole[0].r === me.hole[1].r ? 'Pocket pair' : '')) : '';
+    const best = me.hole.length === 2 ? (S.board.length >= 3 ? E.bestHand(me.hole.concat(S.board)).name : (me.hole[0].r === me.hole[1].r ? 'Pocket pair' : '')) : '';
     let buttons = '';
     if (myTurn && !sw) {
       const o = PokerGame.optionsFor(S, me);
@@ -545,33 +588,155 @@ function render(){
     } else {
       buttons = `<div class="risk">${!me.alive ? "You're out. Stick around and watch." : me.folded ? 'You folded. Wait for the next hand.' : S.gun ? '' : 'Waiting for the others...'}</div>`;
     }
-    controls = `<div class="controls">
-      <div class="chip mine">${me.hole.length && !needCover && !sw ? `<div class="row">${me.hole.map(c => card2d(c, 'mini')).join('')}</div>` : ''}
+    controls = `<div class="chip mine">${me.hole.length && !sw ? `<div class="row">${me.hole.map(c => card2d(c, 'mini')).join('')}</div>` : ''}
         <div><div class="label">${esc(me.name)} · loaded</div>${bulletsHTML(me.bet)}</div>${best ? `<div class="big">${best}</div>` : ''}
         <span class="label hide-sm">${me.switchUsed ? '' : 'Switch ready'}${!me.switchUsed && !me.cowardUsed ? ' · ' : ''}${me.cowardUsed ? '' : 'Coward ready'}</span></div>
-      ${buttons}</div>`;
+      ${buttons}`;
   }
+  return {label: `Hand ${S.handNo} · ${STREET_NAME[S.street] || ''} · to call ${S.currentBet}`, controls, results, extra: board};
+}
+
+const RN = LiarsGame.RANK_NAME;
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const lcard = (c, cls = '', attrs = '') => c && !c.hidden
+  ? `<div class="card2d lc ${c.k === 'J' ? 'red' : ''} ${cls}" ${attrs} aria-label="${RN[c.k]}"><span class="r">${c.k === 'J' ? '★' : c.k}</span><span class="s">${RN[c.k].toUpperCase()}</span></div>`
+  : `<div class="card2d back ${cls}"></div>`;
+const pullsHTML = n => `<span class="bullets" aria-label="${n} of 6 trigger pulls used">${'×'.repeat(n)}<span class="emp">${'○'.repeat(Math.max(0, 6 - n))}</span></span>`;
+const pullOdds = p => `next pull: <b>1 in ${Math.max(1, 6 - p.shots)}</b>`;
+function verdictRow(S, inner){
+  const r = S.result, loser = S.players[r.loser];
+  return `<div class="rrow ${r.honest ? 'win' : ''}"><div class="rname">${esc(S.players[r.accused].name)}</div><div class="rcards">${inner}</div>
+    <div class="rhand"><span>${r.honest ? 'Truth' : 'Lie'}</span><span class="rtag shoot">${esc(loser.name)} PULLS</span></div></div>`;
+}
+function deckHUD(S, me, myTurn){
+  const label = `Round ${S.round} · Table of ${RN[S.table]}s`;
+  const results = S.reveal && S.result && S.last && !S.gun ? `<div class="results" aria-live="polite">${verdictRow(S, S.last.cards.map(c => lcard(c, 'res')).join(''))}</div>` : '';
+  const lastLine = S.last ? `${esc(S.players[S.last.pid].name)} played ${plural(S.last.n, 'card')}: "${plural(S.last.n, RN[S.table])}"` : 'No cards played yet this round';
+  const extra = `<div class="chip tablecard"><div class="label">Table card</div>${lcard({k: S.table}, 'mini')}<div class="label">Jokers are wild</div></div>`;
+  let controls = '';
+  if (me && !S.over) {
+    const o = LiarsGame.deckOptions(S, me);
+    const canPick = myTurn && o.canPlay;
+    const hand = me.hand.map((c, k) => lcard(c, `mini ${canPick ? 'pick' : ''} ${pick.includes(c.id) ? 'sel' : ''}`, canPick ? `data-card="${c.id}" role="button" tabindex="0" aria-pressed="${pick.includes(c.id)}"` : '')).join('');
+    let buttons;
+    if (myTurn) {
+      const n = pick.length;
+      buttons = `<div class="row">
+        ${o.canPlay ? `<button class="btn" id="aPlay" ${n ? '' : 'disabled'}>${n ? `Play ${plural(n, RN[S.table])}` : `Pick 1–${o.maxPlay} cards`}<kbd>↵</kbd></button>` : ''}
+        ${o.canLiar ? `<button class="btn red" id="aLiar">LIAR!<kbd>L</kbd></button>` : ''}</div>
+        <div class="risk">${lastLine} · ${pullOdds(me)}</div>`;
+    } else buttons = `<div class="risk">${!me.alive ? "You're out. Stick around and watch." : S.gun ? '' : `${lastLine}. Waiting for the others...`}</div>`;
+    controls = `<div class="chip mine">${me.hand.length ? `<div class="row">${hand}</div>` : '<span class="label">No cards left</span>'}
+      <div><div class="label">${esc(me.name)} · trigger pulls</div>${pullsHTML(me.shots)}</div></div>${buttons}`;
+  }
+  return {label, controls, results, extra};
+}
+const DIE_CH = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+const die2d = (v, cls = '') => v ? `<span class="die2d ${v === 1 ? 'one' : ''} ${cls}" aria-label="${v}">${DIE_CH[v]}</span>` : `<span class="die2d hid ${cls}">?</span>`;
+function diceHUD(S, me, myTurn){
+  const label = `Round ${S.round} · ${S.bid ? `Bid ${S.bid.q} × ${S.bid.f}` : 'No bid yet'} · ones wild`;
+  let results = '';
+  if (S.reveal && S.result && !S.gun) {
+    const r = S.result;
+    results = `<div class="results" aria-live="polite"><div class="rboard"><span class="gem t"></span><span class="rhand"><span class="ord">${r.count}</span><span>× ${r.f} on the table · bid ${r.q}</span></span><span class="gem b"></span></div>
+      ${S.players.filter(p => p.dice.length).map(p => `<div class="rrow"><div class="rname">${esc(p.name)}</div><div class="rcards">${p.dice.map(v => die2d(v, v === r.f || v === 1 ? 'hit' : 'miss')).join('')}</div><div class="rhand">${p.id === r.loser ? '<span class="rtag shoot">PULLS</span>' : ''}</div></div>`).join('')}</div>`;
+  }
+  const bidLine = S.bid ? `${esc(S.players[S.bid.pid].name)} bids <b>${S.bid.q} × ${S.bid.f}</b>` : 'Open the bidding';
+  let controls = '';
+  if (me && !S.over) {
+    const o = LiarsGame.diceOptions(S, me);
+    let buttons;
+    if (myTurn) {
+      const ok = o.canBid && LiarsGame.bidBeats(S.bid, bid.q, bid.f) && bid.q <= o.maxQ;
+      buttons = `${o.canBid ? `<div class="chip bidpick"><div class="row"><span class="label">Quantity</span>
+          <button class="btn ghost small" id="qDown" aria-label="Fewer">−</button><b class="big">${bid.q}</b><button class="btn ghost small" id="qUp" aria-label="More">+</button></div>
+        <div class="row"><span class="label">Face</span>${[2, 3, 4, 5, 6].map(f => `<button class="btn ghost small facebtn ${bid.f === f ? 'on' : ''}" data-face="${f}" aria-pressed="${bid.f === f}">${DIE_CH[f]}</button>`).join('')}</div></div>` : ''}
+        <div class="row">${o.canBid ? `<button class="btn" id="aBid" ${ok ? '' : 'disabled'}>Bid ${bid.q} × ${bid.f}<kbd>↵</kbd></button>` : ''}
+        ${o.canLiar ? `<button class="btn red" id="aLiar">LIAR!<kbd>L</kbd></button>` : ''}</div>
+        <div class="risk">${bidLine} · ${pullOdds(me)}</div>`;
+    } else buttons = `<div class="risk">${!me.alive ? "You're out. Stick around and watch." : S.gun ? '' : `${bidLine}. Waiting for the others...`}</div>`;
+    controls = `<div class="chip mine">${me.dice.length ? `<div class="row">${me.dice.map(v => die2d(v)).join('')}</div>` : ''}
+      <div><div class="label">${esc(me.name)} · trigger pulls</div>${pullsHTML(me.shots)}</div></div>${buttons}`;
+  }
+  return {label, controls, results, extra: ''};
+}
+
+// Liar's Deck card selection and the Liar's Dice bid being composed; reset at each new turn.
+let pick = [], bid = {q: 1, f: 2}, turnKey = '';
+function syncTurnUI(S, myTurn){
+  const key = myTurn ? `${S.gameId}-${S.round}-${S.mode === 'deck' ? (S.last ? S.last.pid + ':' + S.pile.length : '-') : JSON.stringify(S.bid)}` : '';
+  if (key === turnKey) return;
+  turnKey = key; pick = [];
+  if (myTurn && S.mode === 'dice') bid = {...LiarsGame.diceOptions(S, S.players[viewer]).min};
+  if (scene3d) scene3d.setPicked([]);
+}
+function togglePick(id){
+  const S = curState(), me = S && S.players[viewer];
+  if (!me || !me.hand.some(c => c.id === id)) return;
+  if (pick.includes(id)) pick = pick.filter(x => x !== id);
+  else if (pick.length < LiarsGame.MAX_PLAY) pick = pick.concat(id);
+  if (scene3d) scene3d.setPicked(pick);
+  render();
+}
+function playPicked(){
+  const S = curState(), me = S.players[viewer];
+  const idx = pick.map(id => me.hand.findIndex(c => c.id === id)).filter(k => k >= 0);
+  if (!idx.length) return;
+  pick = []; if (scene3d) scene3d.setPicked([]);
+  ctl.act({type: 'play', cards: idx});
+}
+function stepBid(dq, f){
+  const S = curState(), o = LiarsGame.diceOptions(S, S.players[viewer]);
+  if (f) bid.f = f;
+  bid.q = Math.max(1, Math.min(o.maxQ, bid.q + (dq || 0)));
+  render();
+}
+
+/* ---------- HUD ---------- */
+const MODE_INFO = {
+  poker: {name: 'Bullet Poker', blurb: "Texas Hold'em where you bet bullets."},
+  deck: {name: "Liar's Deck", blurb: 'Play cards face down, claim they match. Call the liar.'},
+  dice: {name: "Liar's Dice", blurb: 'Bid on everyone\'s hidden dice. Call the liar.'},
+};
+function render(){
+  const S = curState();
+  if (!S || !session.inGame) return;
+  if (scene3d) scene3d.update(S, viewer, false);
+  const me = viewer != null ? S.players[viewer] : null;
+  const myTurn = S.awaiting != null && S.awaiting === viewer && !S.gun;
+  const mode = S.mode || 'poker';
+  if (mode !== 'poker') syncTurnUI(S, myTurn);
+
+  let center = '';
+  if (S.gun) {
+    const p = S.players[S.gun.pid];
+    center = S.gun.state === 'load' || S.gun.state === 'aim' ? cylinderHTML(S.gun, p)
+      : S.gun.state === 'bang' ? `<div class="shot dead">BANG!</div>`
+      : S.gun.state === 'godsave' ? `<div class="godsave"><div class="shot god">GOD SAVE!</div><div class="label">${esc(p.name)} survived six bullets · 5% chance</div></div>` : `<div class="shot live">Click.</div>`;
+  }
+  audio.setIntensity(musicIntensity(S));
+  const H = mode === 'deck' ? deckHUD(S, me, myTurn) : mode === 'dice' ? diceHUD(S, me, myTurn) : pokerHUD(S, me, myTurn);
 
   $hud.innerHTML = `
   <div class="hud top">
-    <div class="chip"><div class="brand">Bullet Poker</div><div class="label">Hand ${S.handNo} · ${STREET_NAME[S.street] || ''} · to call ${S.currentBet}</div></div>
+    <div class="chip"><div class="brand">${MODE_INFO[mode].name}</div><div class="label">${H.label}</div></div>
     <div class="row">
       <button class="btn ghost small ${audio.music ? 'on' : ''}" id="tMusic" title="Switch track">♪ ${audio.musicLabel}</button>
       <button class="btn ghost small ${audio.sfx ? 'on' : ''}" id="tSfx" aria-pressed="${audio.sfx}">Sound</button>
-      <button class="btn ghost small ${boardOpen ? 'on' : ''}" id="tBoard" aria-pressed="${boardOpen}">Board<kbd>B</kbd></button>
+      ${mode === 'poker' ? `<button class="btn ghost small ${boardOpen ? 'on' : ''}" id="tBoard" aria-pressed="${boardOpen}">Board<kbd>B</kbd></button>` : ''}
       <button class="btn ghost small ${logOpen ? 'on' : ''}" id="tLog">Log</button>
       <button class="btn ghost small" id="quit">Leave</button>
     </div>
   </div>
   <div class="hud" style="top:30%;justify-content:center;pointer-events:none">${center}</div>
-  ${results}
+  ${H.results}
   ${logOpen ? `<div class="hud" style="top:96px;justify-content:flex-start"><div class="chip log">${S.log.slice(0, 30).map(l => `<div>${esc(l)}</div>`).join('')}</div></div>` : ''}
-  <div class="hud bottom"><div class="controls">${board}${controls ? controls.replace(/^<div class="controls">|<\/div>$/g, '') : ''}</div></div>`;
+  <div class="hud bottom"><div class="controls">${H.extra}${H.controls}</div></div>`;
 
   if (S.over) {
     const host = session.mode === 'host';
     $ov.innerHTML = `<div class="overlay dim"><div class="panel" style="text-align:center;justify-items:center;width:min(460px,100%)">
-      <div class="label">Last one standing · after ${S.handNo} hands</div>
+      <div class="label">Last one standing · after ${mode === 'poker' ? plural(S.handNo, 'hand') : plural(S.round, 'round')}</div>
       <h1>${S.winner != null ? esc(S.players[S.winner].name.replace(' (left)', '')) : 'Nobody'}</h1>
       ${host ? `<div class="row"><button class="btn" id="again" ${session.net.playerCount >= 2 ? '' : 'disabled title="Everyone else left the table"'}>Play again</button><button class="btn ghost" id="toRoom">Back to the room</button></div>`
              : `<p class="sub">Waiting for the host to start another round...</p><button class="btn ghost" id="quit2">Leave</button>`}</div></div>`;
@@ -585,6 +750,10 @@ function render(){
   on('aAll', () => ctl.act({type:'allin'}));
   on('aSwitch', openSwitch);
   on('swCancel', () => { ctl.switchPick(null, null); sw = null; render(); });
+  on('aPlay', playPicked);
+  on('aLiar', () => ctl.act({type: 'liar'}));
+  on('aBid', () => ctl.act({type: 'bid', q: bid.q, f: bid.f}));
+  on('qUp', () => stepBid(1)); on('qDown', () => stepBid(-1));
   on('again', () => { if (session.net.playerCount < 2) return; session.game.stop(); startHostedGame(); });
   on('toRoom', () => { session.game.stop(); session.game = null; session.inGame = false; resetTable(); session.net.backToRoom(); renderRoom(); });
   on('quit', leaveSession); on('quit2', leaveSession);
@@ -592,6 +761,8 @@ function render(){
   on('tBoard', toggleBoard);
   on('tMusic', () => { audio.unlock(); audio.cycleMusic(); render(); });
   on('tSfx', () => { audio.unlock(); audio.setSfx(!audio.sfx); render(); });
+  $hud.querySelectorAll('[data-card]').forEach(el => el.onclick = () => { audio.play('ui'); togglePick(+el.dataset.card); });
+  $hud.querySelectorAll('[data-face]').forEach(el => el.onclick = () => { audio.play('ui'); stepBid(0, +el.dataset.face); });
   $hud.querySelectorAll('[data-offer]').forEach(el => el.onclick = () => { sw.pick = +el.dataset.offer; audio.play('ui'); render(); });
   $hud.querySelectorAll('[data-hole]').forEach(el => el.onclick = () => {
     if (sw.pick == null) return;
@@ -607,8 +778,24 @@ document.addEventListener('keydown', e => {
   const S = curState();
   if (!S || !session.inGame || (tg && tg.matches && tg.matches('input,select,textarea')) || e.metaKey || e.ctrlKey) return;
   const k = e.key.toLowerCase();
-  if (k === 'b') return toggleBoard();
   if (k === 'm') { audio.unlock(); audio.cycleMusic(); return render(); }
+  if (S.mode === 'deck' || S.mode === 'dice') {
+    if (!(S.awaiting === viewer && !S.gun)) return;
+    const me = S.players[viewer];
+    if (k === 'l' && document.getElementById('aLiar')) { audio.play('ui'); return ctl.act({type: 'liar'}); }
+    if (S.mode === 'deck') {
+      if (/^[1-5]$/.test(k) && me.hand[+k - 1]) return togglePick(me.hand[+k - 1].id);
+      if (k === 'enter' && pick.length) { audio.play('ui'); return playPicked(); }
+    } else {
+      if (k === 'arrowup' || k === '+' || k === '=') { e.preventDefault(); return stepBid(1); }
+      if (k === 'arrowdown' || k === '-') { e.preventDefault(); return stepBid(-1); }
+      if (/^[2-6]$/.test(k)) return stepBid(0, +k);
+      const b = document.getElementById('aBid');
+      if (k === 'enter' && b && !b.disabled) { audio.play('ui'); return ctl.act({type: 'bid', q: bid.q, f: bid.f}); }
+    }
+    return;
+  }
+  if (k === 'b') return toggleBoard();
   if (!(S.awaiting === viewer && !S.gun && !sw)) return;
   const o = PokerGame.optionsFor(S, S.players[viewer]);
   const map = {f: {type:'fold'}, c: {type:'call'}, r: o.canRaise && {type:'raise'}, a: o.canAllIn && {type:'allin'}};

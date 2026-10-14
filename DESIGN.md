@@ -30,6 +30,28 @@ A browser-based 3D bluffing game in the spirit of *Liar's Bar* (Curve Animation,
 | Switch | Once per match, before the river: swap one hole card for one of 4 / 3 / 2 offered cards (pre-flop / flop / turn). You cannot go All-in on the turn you Switch. *(Original game: Switch options shrink from 4 to 2 and All-in is blocked on the Switch turn, per the 2026-07-03 patch notes.)* |
 | Win | Last player alive. |
 
+The host picks one of three games in the room before starting (shown in the open tables list too). Bullet Poker is the table above. The other two follow *Liar's Bar*:
+
+**Liar's Deck** (`liars.js`)
+
+| Item | Rule |
+|---|---|
+| Deck | 20 cards: 6 Kings, 6 Queens, 6 Aces, 2 Jokers (wild). 5 cards each per round. |
+| Table card | Each round names Kings, Queens or Aces at random. |
+| Turn | Play 1–3 cards face down, claiming they are all the table card. Players with no cards left are skipped; if nobody else has cards, the next player must call Liar. |
+| Liar | Call it on the previous play. Cards flip: any card that is neither the table card nor a Joker means a lie, and the liar shoots; otherwise the caller shoots. Then a new deal. |
+
+**Liar's Dice** (`liars.js`)
+
+| Item | Rule |
+|---|---|
+| Dice | 5 dice each under a cup, rerolled every round. Only your own are visible. **Ones are wild.** |
+| Bid | "At least *q* dice show *f*" over the whole table, *f* = 2–6. Raise the quantity, or keep it and raise the face. |
+| Liar | Call it on the last bid. All cups lift; fewer than *q* matching dice (ones count) means the bidder shoots, otherwise the caller does. |
+| Shooting | The original game makes Liar's Dice losers drink from a possibly poisoned glass; here it is the same revolver as Liar's Deck, to keep one gun across the bar. |
+
+**Revolver in both Liar modes:** every player has their own six-chamber gun with **one** round in a random chamber. Each pull moves the cylinder on, so the odds go 1/6, 1/5, ... 1/1. Where the round sits lives only in the host's game object and is never sent to anyone. The HUD shows spent chambers (×) and the odds of the next pull.
+
 ---
 
 ## 3. Visual direction
@@ -226,13 +248,15 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
   - **Liveness:** pings every 5 s. A peer silent for 90 s is gone, but only judged while our own tab is visible (hidden tabs have frozen timers), and a peer that announced its tab went hidden gets 10 minutes, so a host can switch apps and come back to the same table. Closing flushes unacked messages (so a `bye` arrives), then repeats a goodbye (`x`) until answered.
   - **Join errors:** no broker within 15 s → "could not reach the game servers"; no presence for the code within 10 s → "table not found"; presence but no answer within 30 s → "host is not answering".
 - **Lobby:** public tables publish a retained message on `bulletpoker/v1/rooms/<CODE>` every 8 s. An MQTT *last will* plus an explicit clear on close removes the table; listings older than 30 s are dropped.
-- **Messages:** guest → host: `hello`, `pick`, `act`, `swOpen`, `swPick`. Host → guest: `welcome`, `room`, `state` (filtered, with the guest's seat), `ev` (sound/face events), `lobby`, `bye`.
+- **Modes:** `room.mode` is `poker`, `deck` or `dice`; only the host changes it, while waiting. Per-seat filtering hides other hands (poker hole cards, Liar's Deck hands and the face-down last play until a Liar call, Liar's Dice dice until the cups lift).
+- **Messages:** guest → host: `hello`, `pick`, `act` (`play` carries hand indices, `bid` carries `q`, `f`; everything is re-validated by the host), `swOpen`, `swPick`. Host → guest: `welcome`, `room`, `state` (filtered, with the guest's seat), `ev` (sound/face events), `lobby`, `bye`.
 - **Leaving:** a guest who disconnects mid-game leaves the table (out, no bullet fired). If the host leaves, the table closes for everyone.
 - **Limits:** tables are best-effort (free public infrastructure, no accounts, no broker SLA). Encryption stops eavesdroppers but there is no authentication: someone who actively injects messages into the table topics could disrupt a table. Networks that block WebSockets can't play. Only runs from a normal web host such as GitHub Pages, not inside a claude.ai artifact, which blocks WebSockets.
 
 ## 9. Tech notes
 - `engine.js`: card model, hand evaluator (best 5 of 7), Monte Carlo equity. No DOM.
-- `game.js`: rules and turn flow; emits `onChange(state)` and `onEvent(type, data)`. No DOM.
+- `game.js`: Bullet Poker rules and turn flow; emits `onChange(state)` and `onEvent(type, data)`. No DOM.
+- `liars.js`: Liar's Deck and Liar's Dice, same interface as `game.js` (`state.mode` tells them apart). No DOM.
 - `scene.js`: Three.js scene, characters, faces, camera modes, portrait renderer. Reads state only.
 - `audio.js`: Web Audio synth for music and SFX.
 - `net.js`: lobby and table networking (both over MQTT), reliable encrypted links, state filtering per seat.

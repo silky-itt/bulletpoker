@@ -25,10 +25,14 @@ const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').s
 const cleanName = (s, fallback, max = 14) => (String(s || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, max) || fallback);
 const ANIMALS = ['fox', 'pig', 'bear', 'bull'];
 const validAnimal = (a, fallback = 'fox') => ANIMALS.includes(a) ? a : fallback;
-const ACTIONS = ['fold', 'coward', 'check', 'call', 'raise', 'allin'];
+const ACTIONS = ['fold', 'coward', 'check', 'call', 'raise', 'allin', 'play', 'liar', 'bid'];
+const MODES = ['poker', 'deck', 'dice'];
+const validMode = m => MODES.includes(m) ? m : 'poker';
 const STREETS = ['preflop', 'flop', 'turn', 'river', 'showdown'];
 const GUN_STATES = ['load', 'aim', 'click', 'bang', 'godsave'];
-const EVENTS = ['deal', 'board', 'check', 'bet', 'allin', 'fold', 'switch', 'loadStart', 'loadBullet', 'aim', 'click', 'bang', 'godsave', 'gunDown', 'win', 'showdown', 'yourTurn', 'thinking', 'gameOver'];
+const EVENTS = ['deal', 'board', 'check', 'bet', 'allin', 'fold', 'switch', 'loadStart', 'loadBullet', 'aim', 'click', 'bang', 'godsave', 'gunDown', 'win', 'showdown', 'yourTurn', 'thinking', 'gameOver',
+  'roll', 'play', 'bid', 'liar', 'reveal'];
+const DECK_KINDS = ['K', 'Q', 'A', 'J'];
 
 /* ---------- guest-side validation: never trust what arrives over the wire ---------- */
 const int = (v, lo, hi, d = lo) => { v = Number(v); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : d; };
@@ -39,8 +43,12 @@ function cleanCard(c) {
   const r = int(c.r, 2, 14), s = int(c.s, 0, 3);
   return {r, s, id: s * 13 + r};
 }
+const cleanGun = (g, n) => g && typeof g === 'object' && GUN_STATES.includes(g.state)
+  ? {pid: int(g.pid, 0, n - 1), bullets: int(g.bullets, 1, 6), loaded: int(g.loaded, 0, 6), state: g.state, reason: String(g.reason || '').slice(0, 40), ...(g.spent != null ? {spent: int(g.spent, 0, 6)} : {})}
+  : null;
 function sanitizeState(S, seat) {
   if (!S || typeof S !== 'object') return null;
+  if (S.mode === 'deck' || S.mode === 'dice') return sanitizeLiars(S, seat);
   const players = arr(S.players).slice(0, MAX_SEATS).map((p, i) => (p = p && typeof p === 'object' ? p : {}, {
     id: i, name: cleanName(p.name, 'Player', 22), kind: 'human', animal: validAnimal(p.animal),
     alive: !!p.alive, hole: arr(p.hole).slice(0, 2).map(cleanCard), bet: int(p.bet, 0, 6),
@@ -55,13 +63,51 @@ function sanitizeState(S, seat) {
     dealer: int(S.dealer, -1, n - 1, -1), handNo: int(S.handNo, 0, 1e6),
     toAct: seatOrNull(S.toAct, n), awaiting: seatOrNull(S.awaiting, n), showdown: !!S.showdown,
     winners: S.winners == null ? null : arr(S.winners).slice(0, MAX_SEATS).map(w => int(w, 0, n - 1)),
-    gun: g && GUN_STATES.includes(g.state) ? {pid: int(g.pid, 0, n - 1), bullets: int(g.bullets, 1, 6), loaded: int(g.loaded, 0, 6), state: g.state, reason: String(g.reason || '').slice(0, 40)} : null,
+    gun: cleanGun(g, n),
     winner: seatOrNull(S.winner, n), over: !!S.over,
     switchOffer: S.switchOffer && int(S.switchOffer.pid, 0, n - 1) === seat ? {pid: seat, cards: arr(S.switchOffer.cards).slice(0, 4).map(cleanCard).filter(c => !c.hidden)} : null,
     log: arr(S.log).slice(0, 60).map(l => String(l).slice(0, 200)),
     gameId: String(S.gameId || '').slice(0, 16),
   };
 }
+// Liar's Deck / Liar's Dice
+const cleanDeckCard = c => c && typeof c === 'object' ? (DECK_KINDS.includes(c.k) ? {id: int(c.id, 0, 19), k: c.k} : {id: int(c.id, 0, 19), hidden: true}) : {id: 0, hidden: true};
+function sanitizeLiars(S, seat) {
+  const deck = S.mode === 'deck';
+  const players = arr(S.players).slice(0, MAX_SEATS).map((p, i) => (p = p && typeof p === 'object' ? p : {}, {
+    id: i, name: cleanName(p.name, 'Player', 22), kind: 'human', animal: validAnimal(p.animal),
+    alive: !!p.alive, shots: int(p.shots, 0, 6), lastAction: String(p.lastAction || '').slice(0, 24),
+    ...(deck ? {hand: arr(p.hand).slice(0, 5).map(cleanDeckCard)} : {dice: arr(p.dice).slice(0, 5).map(d => int(d, 0, 6))}),
+  }));
+  const n = players.length || 1;
+  const r = S.result && typeof S.result === 'object' ? S.result : null;
+  const out = {
+    mode: deck ? 'deck' : 'dice', players, round: int(S.round, 0, 1e6),
+    toAct: seatOrNull(S.toAct, n), awaiting: seatOrNull(S.awaiting, n), reveal: !!S.reveal,
+    result: r ? {caller: int(r.caller, 0, n - 1), accused: int(r.accused, 0, n - 1), loser: int(r.loser, 0, n - 1), honest: !!r.honest,
+      ...(deck ? {} : {count: int(r.count, 0, 20), q: int(r.q, 1, 20), f: int(r.f, 2, 6)})} : null,
+    gun: cleanGun(S.gun, n), winner: seatOrNull(S.winner, n), over: !!S.over,
+    log: arr(S.log).slice(0, 60).map(l => String(l).slice(0, 200)), gameId: String(S.gameId || '').slice(0, 16),
+  };
+  if (deck) {
+    out.table = DECK_KINDS.slice(0, 3).includes(S.table) ? S.table : 'K';
+    out.pile = arr(S.pile).slice(0, 20).map(c => ({id: int(c && c.id, 0, 19)}));
+    const l = S.last && typeof S.last === 'object' ? S.last : null;
+    out.last = l ? {pid: int(l.pid, 0, n - 1), n: int(l.n, 1, 3), cards: arr(l.cards).slice(0, 3).map(cleanDeckCard)} : null;
+  } else {
+    const b = S.bid && typeof S.bid === 'object' ? S.bid : null;
+    out.bid = b ? {pid: int(b.pid, 0, n - 1), q: int(b.q, 1, 20), f: int(b.f, 2, 6)} : null;
+  }
+  return out;
+}
+// Guest -> host action, reduced to known fields.
+function cleanAction(a) {
+  if (!a || typeof a !== 'object' || !ACTIONS.includes(a.type)) return null;
+  if (a.type === 'play') return {type: 'play', cards: arr(a.cards).slice(0, 3).map(x => int(x, 0, 4))};
+  if (a.type === 'bid') return {type: 'bid', q: int(a.q, 1, 20), f: int(a.f, 2, 6)};
+  return {type: a.type};
+}
+
 function sanitizeEvent(type, d) {
   if (!EVENTS.includes(type)) return null;
   d = d && typeof d === 'object' ? d : {};
@@ -75,12 +121,22 @@ function sanitizeEvent(type, d) {
 }
 function sanitizeRoom(r) {
   if (!r || typeof r !== 'object') return null;
-  return {code: cleanCode(r.code), name: cleanName(r.name, 'Table', 24), isPublic: r.isPublic !== false, status: r.status === 'playing' ? 'playing' : 'waiting',
+  return {code: cleanCode(r.code), name: cleanName(r.name, 'Table', 24), isPublic: r.isPublic !== false, status: r.status === 'playing' ? 'playing' : 'waiting', mode: validMode(r.mode),
     seats: arr(r.seats).slice(0, MAX_SEATS).map(s => ({key: String(s && s.key || '').slice(0, 12), name: cleanName(s && s.name, 'Player'), animal: validAnimal(s && s.animal), host: !!(s && s.host)}))};
 }
 
-// What one seat is allowed to see: other players' hole cards stay hidden until showdown.
+// What one seat is allowed to see: other players' hidden cards / dice never leave the host.
 function viewFor(S, seat) {
+  if (S.mode === 'deck') {
+    const hide = c => ({id: c.id, hidden: true});
+    return {
+      ...S,
+      players: S.players.map(p => ({...p, hand: p.id === seat ? p.hand : p.hand.map(hide)})),
+      last: S.last && {...S.last, cards: S.reveal ? S.last.cards : S.last.cards.map(hide)},
+      pile: S.pile.map(c => ({id: c.id})),
+    };
+  }
+  if (S.mode === 'dice') return {...S, players: S.players.map(p => ({...p, dice: p.id === seat || S.reveal ? p.dice : p.dice.map(() => 0)}))};
   return {
     ...S,
     players: S.players.map(p => {
@@ -413,7 +469,7 @@ function watchLobby(onList, onStatus) {
       try {
         const r = JSON.parse(msg.toString());
         if (r.v !== V || cleanCode(r.code) !== code) return;
-        rooms.set(code, {code, name: cleanName(r.name, 'Room', 24), host: cleanName(r.host, 'Host'), players: Math.min(MAX_SEATS, r.players | 0), status: r.status === 'playing' ? 'playing' : 'waiting', ts: Math.min(Date.now(), +r.ts || 0)});
+        rooms.set(code, {code, name: cleanName(r.name, 'Room', 24), host: cleanName(r.host, 'Host'), players: Math.min(MAX_SEATS, r.players | 0), status: r.status === 'playing' ? 'playing' : 'waiting', mode: validMode(r.mode), ts: Math.min(Date.now(), +r.ts || 0)});
         publish();
       } catch {}
     },
@@ -425,24 +481,24 @@ function watchLobby(onList, onStatus) {
 
 /* ---------- host a room ---------- */
 // me: {name, animal}. Returns a room controller.
-function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce = true}) {
+function hostRoom({me, roomName, isPublic, mode, onRoom, onError, transport, announce = true}) {
   const T = transport || mqttTransport();
   let code = makeCode(), stopListen = null, mq = null, beat = null, closed = false;
   const room = {
-    code, name: cleanName(roomName, `${me.name}'s table`, 24), isPublic, status: 'waiting',
+    code, name: cleanName(roomName, `${me.name}'s table`, 24), isPublic, status: 'waiting', mode: validMode(mode),
     seats: [{key: 'host', name: cleanName(me.name, 'Host'), animal: me.animal, host: true}],
   };
   const guests = new Map(); // key -> {conn, seatIdx}
   let game = null, seatOfKey = new Map();
   const gone = new Set(); // guests who left during a game
 
-  const roomView = () => ({code: room.code, name: room.name, isPublic: room.isPublic, status: room.status, seats: room.seats.map(s => ({key: s.key, name: s.name, animal: s.animal, host: !!s.host}))});
+  const roomView = () => ({code: room.code, name: room.name, isPublic: room.isPublic, status: room.status, mode: room.mode, seats: room.seats.map(s => ({key: s.key, name: s.name, animal: s.animal, host: !!s.host}))});
   const broadcast = msg => { for (const g of guests.values()) g.conn.send(msg); };
   const changed = () => { onRoom && onRoom(roomView()); broadcast({t: 'room', room: roomView()}); announceNow(); };
 
   function announceNow() {
     if (!mq || !mq.connected || !room.isPublic) return;
-    mq.publish(TOPIC + room.code, JSON.stringify({v: V, code: room.code, name: room.name, host: room.seats[0].name, players: room.seats.length, status: room.status, ts: Date.now()}), {retain: true, qos: 0});
+    mq.publish(TOPIC + room.code, JSON.stringify({v: V, code: room.code, name: room.name, host: room.seats[0].name, players: room.seats.length, status: room.status, mode: room.mode, ts: Date.now()}), {retain: true, qos: 0});
   }
   function unannounce() { if (mq) clearRetained(mq, TOPIC + room.code); }
 
@@ -473,7 +529,8 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
       if (msg.t === 'pick' && room.status === 'waiting') { const s = room.seats.find(x => x.key === key); if (s && ANIMALS.includes(msg.animal) && s.animal !== msg.animal && !room.seats.some(o => o !== s && o.animal === msg.animal)) { s.animal = msg.animal; changed(); } }
       if (!game || seat == null) return;
       const S = game.state;
-      if (msg.t === 'act' && S.awaiting === seat && msg.a && ACTIONS.includes(msg.a.type)) game.act({type: msg.a.type});
+      const a = msg.t === 'act' && S.awaiting === seat ? cleanAction(msg.a) : null;
+      if (a) game.act(a);
       if (msg.t === 'swOpen' && S.awaiting === seat) game.switchOpen(seat);
       if (msg.t === 'swPick' && S.awaiting === seat) game.switchPick(seat, msg.h == null ? null : msg.h | 0, msg.o == null ? null : msg.o | 0);
     });
@@ -505,6 +562,9 @@ function hostRoom({me, roomName, isPublic, onRoom, onError, transport, announce 
   return {
     get room() { return roomView(); },
     get code() { return room.code; },
+    // The game mode for the next start; only while waiting.
+    setMode(m) { if (room.status === 'waiting' && MODES.includes(m) && m !== room.mode) { room.mode = m; changed(); } },
+    get mode() { return room.mode; },
     pickAnimal(a) { if (ANIMALS.includes(a) && !room.seats.some((o, i) => i > 0 && o.animal === a)) { room.seats[0].animal = a; changed(); return true; } return false; },
     // Seats for PokerGame, in join order. Guests who left during the last game are dropped.
     seatsForGame() {
@@ -561,5 +621,5 @@ function joinRoom({code, me, onRoom, onState, onEvent, onLobby, onClose, transpo
   };
 }
 
-root.PokerNet = {watchLobby, hostRoom, joinRoom, mqttTransport, viewFor, sanitizeState, sanitizeEvent, cleanCode, MAX_SEATS, ANIMALS};
+root.PokerNet = {watchLobby, hostRoom, joinRoom, mqttTransport, viewFor, sanitizeState, sanitizeEvent, cleanAction, cleanCode, MAX_SEATS, ANIMALS, MODES};
 })(typeof window !== 'undefined' ? window : globalThis);
