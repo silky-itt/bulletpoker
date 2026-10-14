@@ -114,14 +114,15 @@ fresh();
 let game = null;
 function onEvent(type, d, GS) {
   const talk = () => d.pid != null && scene3d.react(d.pid, 'talk');
+  const gest = kind => d.pid != null && scene3d.react(d.pid, kind);
   const DEAL = PokerScene.DEAL;
   switch (type) {
     case 'deal': audio.play('deal', {count: d.count, delay: DEAL.shuffle, gap: DEAL.gap[GS.mode] || DEAL.gap.poker}); break;
     case 'board': audio.play('board', d.count); break;
-    case 'check': audio.play('check'); talk(); break;
-    case 'bet': audio.play('bet', d.added); talk(); break;
-    case 'allin': audio.play('allin'); talk(); break;
-    case 'fold': audio.play('fold'); talk(); break;
+    case 'check': audio.play('check'); talk(); gest('knock'); break;
+    case 'bet': audio.play('bet', d.added); talk(); gest('push'); break;
+    case 'allin': audio.play('allin'); talk(); gest('push2'); break;
+    case 'fold': audio.play('fold'); talk(); gest('toss'); break;
     case 'loadStart': audio.play('loadStart'); audio.tension(true); vignette(true); break;
     case 'loadBullet': audio.play('loadBullet'); break;
     case 'aim': audio.play('spin'); audio.tension(true); vignette(true); break;
@@ -130,9 +131,9 @@ function onEvent(type, d, GS) {
     case 'bang': audio.play('bang', d.pid === viewer()); audio.tension(false); vignette(false); flashRed(); break;
     case 'win': case 'showdown': audio.play('win'); d.ids.forEach(id => scene3d.react(id, 'happy')); break;
     case 'roll': audio.play('dice', d.count); break;
-    case 'play': audio.play('slap', {n: d.n}); talk(); break;
-    case 'bid': audio.play('bet', 1); talk(); break;
-    case 'liar': audio.play('liar'); talk(); break;
+    case 'play': audio.play('slap', {n: d.n}); talk(); gest('push'); break;
+    case 'bid': audio.play('bet', 1); talk(); gest('push'); break;
+    case 'liar': audio.play('liar'); talk(); gest('slam'); break;
     case 'reveal': audio.play(GS.mode === 'dice' ? 'dice' : 'switch', 2); break;
   }
 }

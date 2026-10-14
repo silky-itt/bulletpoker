@@ -5,15 +5,21 @@
 const T = root.THREE;
 const E = root.PokerEngine;
 
+// outfit: shirt (body), coat over it ('vest' open at the front, 'jacket' open with lapels),
+// sleeve colour (null = bare fur), paw colour, plus a few per-character extras.
 const CHARACTERS = {
   fox:  {name: 'Rusty',   animal: 'Red fox',   blurb: 'Sly. Bluffs more than he should.',
-         body: 0xc8682c, head: 0xd9773a, snout: 0xf1e2cf, ear: 'pointy', snoutShape: 'cone', nose: 'tip', acc: 'bowtie', accColor: 0x2f6b45},
+         body: 0xc8682c, head: 0xd9773a, snout: 0xf1e2cf, ear: 'pointy', snoutShape: 'cone', nose: 'tip', acc: 'bowtie', accColor: 0x2f6b45,
+         shirt: 0xe9dcc2, coat: 0x2f4a36, coatStyle: 'vest', sleeve: 0xe9dcc2, paw: 0x2a1a14, extra: 'watch'},
   pig:  {name: 'Truffle', animal: 'Pig',       blurb: 'Reckless. Calls almost anything.',
-         body: 0xd98f95, head: 0xe9a3a8, snout: 0xf0b7bb, ear: 'flop', snoutShape: 'disk', nose: 'nostrils', acc: 'cap', accColor: 0x55524e},
+         body: 0xd98f95, head: 0xe9a3a8, snout: 0xf0b7bb, ear: 'flop', snoutShape: 'disk', nose: 'nostrils', acc: 'cap', accColor: 0x55524e,
+         shirt: 0x7f97a6, sleeve: null, paw: 0xe9a3a8, extra: 'apron'},
   bear: {name: 'Bruno',   animal: 'Brown bear', blurb: 'Steady. Only plays strong hands.',
-         body: 0x5b3b26, head: 0x6c4630, snout: 0xa98163, ear: 'round', snoutShape: 'box', nose: 'big', acc: 'scarf', accColor: 0xa3312a},
+         body: 0x5b3b26, head: 0x6c4630, snout: 0xa98163, ear: 'round', snoutShape: 'box', nose: 'big', acc: 'scarf', accColor: 0xa3312a,
+         shirt: 0x2f5c5a, sleeve: 0x2f5c5a, paw: 0x4a2f1f, extra: 'sweater'},
   bull: {name: 'Tank',    animal: 'Bull',      blurb: 'Aggressive. Raises at every chance.',
-         body: 0x2f2a28, head: 0x3a3330, snout: 0x8a7468, ear: 'horn', snoutShape: 'box', nose: 'ring', acc: 'ring', accColor: 0xd4a73c},
+         body: 0x2f2a28, head: 0x3a3330, snout: 0x8a7468, ear: 'horn', snoutShape: 'box', nose: 'ring', acc: 'ring', accColor: 0xd4a73c,
+         shirt: 0xd8d0c2, coat: 0x2b211c, coatStyle: 'jacket', sleeve: 0x2b211c, paw: 0x2a2422, extra: 'scar'},
 };
 const TABLE_R = 1.9, SEAT_R = 2.75, CARD_R = 1.35, EYE_H = 1.62, TOP = 0.955;
 // Deal timing in seconds, shared with the deal sound (index.html): riffle, then one card per gap.
@@ -22,6 +28,92 @@ const DEAL = {shuffle: 0.45, gap: {poker: 0.1, deck: 0.06}};
 const std = (c, r = 0.8, m = 0) => new T.MeshStandardMaterial({color: c, roughness: r, metalness: m});
 const wood = (c, r = 0.75) => std(c, r, 0.05);
 
+/* ---------- toon look for the characters: stepped shading + inked outlines ---------- */
+let rampTex = null;
+function toonRamp() {
+  if (rampTex) return rampTex;
+  rampTex = new T.DataTexture(new Uint8Array([105, 105, 105, 185, 185, 185, 255, 255, 255]), 3, 1, T.RGBFormat);
+  rampTex.minFilter = rampTex.magFilter = T.NearestFilter; rampTex.generateMipmaps = false; rampTex.needsUpdate = true;
+  return rampTex;
+}
+const toonCache = new Map();
+function toon(c, double = false) {
+  const key = c + (double ? 'd' : '');
+  if (!toonCache.has(key)) toonCache.set(key, new T.MeshToonMaterial({color: c, gradientMap: toonRamp(), side: double ? T.DoubleSide : T.FrontSide}));
+  return toonCache.get(key);
+}
+// pure black: colours here are linear, so even a dark brown comes out as a light rim after sRGB output
+const INK = new T.MeshBasicMaterial({color: 0x000000, side: T.BackSide, fog: false});
+// Inverted hull: a black back-face copy of each mesh, grown by about `w` on every side.
+function ink(rootObj, w = 0.011) {
+  const meshes = [];
+  rootObj.traverse(o => { if (o.isMesh && !o.userData.noInk) meshes.push(o); });
+  for (const m of meshes) {
+    const g = m.geometry; g.computeBoundingBox();
+    const size = g.boundingBox.getSize(new T.Vector3()), c = g.boundingBox.getCenter(new T.Vector3());
+    if (Math.max(size.x, size.y, size.z) < 0.05) continue;
+    const s = new T.Vector3(...['x', 'y', 'z'].map(a => Math.min(1.35, 1 + 2 * w / Math.max(size[a], 1e-3))));
+    const hull = new T.Mesh(g, INK);
+    hull.scale.copy(s); hull.position.set(c.x * (1 - s.x), c.y * (1 - s.y), c.z * (1 - s.z));
+    hull.userData.noInk = true; hull.raycast = () => {};
+    m.add(hull);
+  }
+}
+const noInk = m => { m.userData.noInk = true; return m; };
+
+// Torso profile (y, radius) in torso space; shells (vest, apron) reuse it a little larger.
+const TORSO = [[0, 0.3], [0.12, 0.36], [0.35, 0.37], [0.6, 0.33], [0.78, 0.24], [0.86, 0.12]];
+const torsoR = y => { for (let i = 1; i < TORSO.length; i++) if (y <= TORSO[i][0]) { const [y0, r0] = TORSO[i - 1], [y1, r1] = TORSO[i]; return r0 + (r1 - r0) * (y - y0) / (y1 - y0); } return TORSO[TORSO.length - 1][1]; };
+// a lathe around y between y0 and y1; phi 0 faces +z, so the front (-z) is at phi = PI
+function shell(y0, y1, grow, phiStart = 0, phiLen = Math.PI * 2, closed = false) {
+  const pts = [];
+  if (closed) pts.push(new T.Vector2(0, y0));
+  for (let i = 0; i <= 10; i++) { const y = y0 + (y1 - y0) * i / 10; pts.push(new T.Vector2(torsoR(y) * grow, y)); }
+  if (closed) pts.push(new T.Vector2(0, y1));
+  return new T.LatheGeometry(pts, 28, phiStart, phiLen);
+}
+
+/* ---------- arms: two-bone IK in torso space ---------- */
+const UPV = new T.Vector3(0, 1, 0), FWD = new T.Vector3(0, 0, -1);
+const ARM_A = 0.36, ARM_B = 0.38; // upper arm, forearm
+function makeArm(a, side) {
+  const sleeve = toon(a.sleeve == null ? a.body : a.sleeve), paw = toon(a.paw);
+  const arm = {side, shoulder: new T.Vector3(side * 0.31, 0.68, -0.02), cur: null, elbowP: new T.Vector3(), handP: new T.Vector3()};
+  arm.upper = new T.Mesh(new T.CylinderGeometry(0.075, 0.068, ARM_A, 12), sleeve);
+  arm.fore = new T.Mesh(new T.CylinderGeometry(0.066, 0.058, ARM_B, 12), a.sleeve == null ? toon(a.body) : sleeve);
+  arm.joint = new T.Mesh(new T.SphereGeometry(0.068, 12, 10), sleeve);
+  arm.cap = new T.Mesh(new T.SphereGeometry(0.08, 12, 10), sleeve); arm.cap.position.copy(arm.shoulder);
+  // paw: a soft palm with a thumb and three finger nubs, fingers toward -z, palm down
+  arm.hand = new T.Group();
+  const palm = new T.Mesh(new T.SphereGeometry(0.07, 12, 10), paw); palm.scale.set(1, 0.7, 1.15); arm.hand.add(palm);
+  for (let f = -1; f <= 1; f++) { const n = noInk(new T.Mesh(new T.SphereGeometry(0.028, 8, 6), paw)); n.position.set(f * 0.036, -0.012, -0.072); arm.hand.add(n); }
+  const thumb = noInk(new T.Mesh(new T.SphereGeometry(0.03, 8, 6), paw)); thumb.position.set(-side * 0.062, 0.004, -0.02); arm.hand.add(thumb);
+  if (a.sleeve != null) { // cuff
+    const cuff = new T.Mesh(new T.TorusGeometry(0.06, 0.016, 6, 14), toon(a.extra === 'sweater' ? 0x234644 : a.sleeve));
+    cuff.rotation.x = Math.PI / 2; cuff.position.y = -ARM_B / 2 + 0.02; arm.fore.add(cuff);
+  }
+  return arm;
+}
+const _d = new T.Vector3(), _p = new T.Vector3(), _q = new T.Quaternion();
+function placeLimb(mesh, from, to) { mesh.position.copy(from).add(to).multiplyScalar(0.5); mesh.quaternion.setFromUnitVectors(UPV, _d.copy(to).sub(from).normalize()); }
+// reach for `target` (torso space); `handQ` optionally orients the paw (e.g. around a gun grip)
+function solveArm(arm, target, handQ) {
+  const S = arm.shoulder, dir = _d.copy(target).sub(S);
+  const len = Math.max(Math.abs(ARM_A - ARM_B) + 0.02, Math.min(ARM_A + ARM_B - 0.002, dir.length()));
+  dir.normalize();
+  const cosA = (ARM_A * ARM_A + len * len - ARM_B * ARM_B) / (2 * ARM_A * len), sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+  // elbows bend out, down and back
+  _p.set(arm.side * 0.7, -1, 0.5); _p.addScaledVector(dir, -_p.dot(dir)).normalize();
+  arm.elbowP.copy(S).addScaledVector(dir, ARM_A * cosA).addScaledVector(_p, ARM_A * sinA);
+  arm.handP.copy(S).addScaledVector(dir, len);
+  placeLimb(arm.upper, S, arm.elbowP);
+  placeLimb(arm.fore, arm.elbowP, arm.handP);
+  arm.joint.position.copy(arm.elbowP);
+  arm.hand.position.copy(arm.handP);
+  if (handQ) arm.hand.quaternion.copy(handQ);
+  else { _d.copy(arm.handP).sub(arm.elbowP).setY(0); if (_d.lengthSq() < 1e-6) _d.copy(FWD); arm.hand.quaternion.setFromUnitVectors(FWD, _d.normalize()); }
+}
+
 /* ---------- character model with a full face kit ---------- */
 function makeAnimal(kind) {
   const a = CHARACTERS[kind] || CHARACTERS.fox;
@@ -29,111 +121,167 @@ function makeAnimal(kind) {
   const chair = new T.Mesh(new T.BoxGeometry(0.7, 0.08, 0.7), wood(0x3a2414)); chair.position.y = 0.55;
   const back = new T.Mesh(new T.BoxGeometry(0.7, 0.9, 0.08), wood(0x3a2414)); back.position.set(0, 1.0, 0.33);
   const torso = new T.Group(); torso.position.y = 0.6;
-  const body = new T.Mesh(new T.CylinderGeometry(0.3, 0.38, 0.85, 16), std(a.body)); body.position.y = 0.42; torso.add(body);
-  const head = new T.Group(); head.position.y = 0.98; torso.add(head);
-  head.add(new T.Mesh(new T.SphereGeometry(0.27, 20, 16), std(a.head)));
+  const fig = new T.Group(); torso.add(fig); // everything that gets inked
+  const fur = toon(a.head), body = toon(a.body);
+
+  // body: shirt, then the coat or apron over it
+  fig.add(new T.Mesh(shell(0, 0.86, 1, 0, Math.PI * 2, true), toon(a.shirt)));
+  if (a.coatStyle) {
+    const open = a.coatStyle === 'vest' ? 0.5 : 0.62; // half-width of the opening at the front, radians
+    const coat = new T.Mesh(shell(a.coatStyle === 'vest' ? 0.14 : 0.02, a.coatStyle === 'vest' ? 0.74 : 0.8, 1.045, Math.PI + open, Math.PI * 2 - open * 2), toon(a.coat, true));
+    fig.add(coat);
+    if (a.coatStyle === 'jacket') { // lapels and a collar
+      for (const s of [-1, 1]) { const l = new T.Mesh(new T.BoxGeometry(0.1, 0.3, 0.025), toon(a.coat)); l.position.set(s * 0.15, 0.62, -0.27); l.rotation.set(-0.35, s * 0.55, s * 0.32); fig.add(l); }
+      const collar = new T.Mesh(new T.TorusGeometry(0.17, 0.04, 8, 20, Math.PI * 1.3), toon(a.coat)); collar.rotation.set(Math.PI / 2, 0, Math.PI * 0.85); collar.position.y = 0.8; fig.add(collar);
+    } else { // vest buttons
+      for (let i = 0; i < 3; i++) { const b = noInk(new T.Mesh(new T.SphereGeometry(0.016, 8, 6), toon(0xd4a73c))); const y = 0.22 + i * 0.12; b.position.set(Math.sin(Math.PI + open) * torsoR(y) * 1.05, y, Math.cos(Math.PI + open) * torsoR(y) * 1.05); fig.add(b); }
+    }
+  }
+  if (a.extra === 'watch') { // pocket-watch chain across the vest
+    const chain = noInk(new T.Mesh(new T.TorusGeometry(0.1, 0.006, 6, 18, Math.PI), toon(0xd4a73c)));
+    chain.position.set(0.02, 0.42, -0.375); chain.rotation.set(0.15, 0, Math.PI); fig.add(chain);
+    const watch = new T.Mesh(new T.CylinderGeometry(0.035, 0.035, 0.015, 14), toon(0xd4a73c)); watch.rotation.x = Math.PI / 2 - 0.2; watch.position.set(0.12, 0.38, -0.38); fig.add(watch);
+  }
+  if (a.extra === 'apron') { // butcher's apron with a bib and a neck strap
+    fig.add(new T.Mesh(shell(0.03, 0.62, 1.04, Math.PI - 0.8, 1.6), toon(0xebe4d6, true)));
+    const bib = new T.Mesh(new T.BoxGeometry(0.26, 0.16, 0.02), toon(0xebe4d6)); bib.position.set(0, 0.64, -0.31); bib.rotation.x = -0.3; fig.add(bib);
+    const strap = new T.Mesh(new T.TorusGeometry(0.15, 0.012, 6, 20), toon(0xebe4d6)); strap.position.set(0, 0.82, -0.08); strap.rotation.x = Math.PI / 2 - 0.5; fig.add(strap);
+    const stain = noInk(new T.Mesh(new T.CircleGeometry(0.035, 10), toon(0x9b3a34))); stain.position.set(-0.1, 0.3, -torsoR(0.3) * 1.045 - 0.002); stain.rotation.y = Math.PI; fig.add(stain);
+  }
+  if (a.extra === 'sweater') { // ribbed hem and a cream band across the chest
+    const hem = new T.Mesh(new T.TorusGeometry(torsoR(0.06) * 1.01, 0.03, 8, 28), toon(0x234644)); hem.rotation.x = Math.PI / 2; hem.position.y = 0.06; fig.add(hem);
+    for (const y of [0.46, 0.53]) { const band = noInk(new T.Mesh(new T.TorusGeometry(torsoR(y) * 1.005, 0.014, 6, 32), toon(0xe9dcc2))); band.rotation.x = Math.PI / 2; band.position.y = y; fig.add(band); }
+  }
+  const head = new T.Group(); head.position.y = 0.98; fig.add(head);
+  head.add(new T.Mesh(new T.SphereGeometry(0.27, 24, 18), fur));
 
   // snout + nose
   let snoutTipZ;
   if (a.snoutShape === 'cone') {
-    const s = new T.Mesh(new T.ConeGeometry(0.11, 0.3, 14), std(a.snout)); s.rotation.x = -Math.PI / 2; s.position.set(0, -0.05, -0.33); head.add(s); snoutTipZ = -0.48;
+    const s = new T.Mesh(new T.ConeGeometry(0.11, 0.3, 14), toon(a.snout)); s.rotation.x = -Math.PI / 2; s.position.set(0, -0.05, -0.33); head.add(s); snoutTipZ = -0.48;
   } else if (a.snoutShape === 'disk') {
-    const s = new T.Mesh(new T.CylinderGeometry(0.1, 0.1, 0.1, 18), std(a.snout)); s.rotation.x = Math.PI / 2; s.position.set(0, -0.05, -0.27); head.add(s); snoutTipZ = -0.32;
+    const s = new T.Mesh(new T.CylinderGeometry(0.1, 0.1, 0.1, 18), toon(a.snout)); s.rotation.x = Math.PI / 2; s.position.set(0, -0.05, -0.27); head.add(s); snoutTipZ = -0.32;
   } else {
-    const s = new T.Mesh(new T.BoxGeometry(0.22, 0.15, 0.17), std(a.snout)); s.position.set(0, -0.07, -0.26); head.add(s); snoutTipZ = -0.345;
+    const s = new T.Mesh(new T.BoxGeometry(0.22, 0.15, 0.17), toon(a.snout)); s.position.set(0, -0.07, -0.26); head.add(s); snoutTipZ = -0.345;
   }
   const dark = std(0x141010, 0.35);
-  if (a.nose === 'tip') { const n = new T.Mesh(new T.SphereGeometry(0.032, 10, 8), dark); n.position.set(0, -0.05, snoutTipZ); head.add(n); }
+  if (a.nose === 'tip') { const n = new T.Mesh(new T.SphereGeometry(0.032, 10, 8), dark); n.position.set(0, -0.05, snoutTipZ); head.add(noInk(n)); }
   if (a.nose === 'big') { const n = new T.Mesh(new T.SphereGeometry(0.05, 12, 8), dark); n.scale.set(1.3, 0.8, 0.8); n.position.set(0, -0.02, snoutTipZ); head.add(n); }
   if (a.nose === 'nostrils' || a.nose === 'ring') {
-    for (const s of [-1, 1]) { const n = new T.Mesh(new T.CylinderGeometry(0.018, 0.018, 0.02, 8), dark); n.rotation.x = Math.PI / 2; n.position.set(s * 0.035, a.nose === 'ring' ? -0.05 : -0.05, snoutTipZ - 0.002); head.add(n); }
+    for (const s of [-1, 1]) { const n = new T.Mesh(new T.CylinderGeometry(0.018, 0.018, 0.02, 8), dark); n.rotation.x = Math.PI / 2; n.position.set(s * 0.035, -0.05, snoutTipZ - 0.002); head.add(noInk(n)); }
   }
-  if (a.nose === 'ring') { const r = new T.Mesh(new T.TorusGeometry(0.04, 0.008, 8, 20), std(a.accColor, 0.25, 0.9)); r.position.set(0, -0.085, snoutTipZ - 0.03); r.rotation.x = 0.5; head.add(r); }
+  if (a.nose === 'ring') { const r = new T.Mesh(new T.TorusGeometry(0.04, 0.008, 8, 20), std(a.accColor, 0.25, 0.6)); r.position.set(0, -0.085, snoutTipZ - 0.03); r.rotation.x = 0.5; head.add(noInk(r)); }
 
-  // eyes (sclera + pupil + highlight), brows, mouth
-  const face = {eyes: [], pupils: [], brows: [], lids: []};
-  const white = std(0xf4efe4, 0.3), black = std(0x0b0b0b, 0.2), shine = new T.MeshBasicMaterial({color: 0xffffff});
+  // eyes (sclera + pupil + highlight), upper lids, brows, mouth, X marks for when they're out
+  const face = {eyes: [], pupils: [], brows: [], lids: [], xs: []};
+  const white = toon(0xf4efe4), black = new T.MeshBasicMaterial({color: 0x0b0b0b}), shine = new T.MeshBasicMaterial({color: 0xffffff});
   for (const s of [-1, 1]) {
     const eye = new T.Group(); eye.position.set(s * 0.1, 0.07, -0.215); head.add(eye);
-    eye.add(new T.Mesh(new T.SphereGeometry(0.058, 14, 12), white));
+    eye.add(new T.Mesh(new T.SphereGeometry(0.058, 16, 12), white));
     const pupil = new T.Group(); pupil.position.z = -0.042; eye.add(pupil);
-    pupil.add(new T.Mesh(new T.SphereGeometry(0.03, 12, 10), black));
-    const hl = new T.Mesh(new T.SphereGeometry(0.009, 6, 6), shine); hl.position.set(0.012, 0.014, -0.026); pupil.add(hl);
+    pupil.add(noInk(new T.Mesh(new T.SphereGeometry(0.03, 12, 10), black)));
+    const hl = noInk(new T.Mesh(new T.SphereGeometry(0.009, 6, 6), shine)); hl.position.set(0.012, 0.014, -0.026); pupil.add(hl);
     pupil.userData.base = pupil.position.clone();
-    const brow = new T.Mesh(new T.BoxGeometry(0.1, 0.02, 0.025), std(0x1d1410)); brow.position.set(s * 0.1, 0.16, -0.235); brow.userData.side = s; head.add(brow);
-    face.eyes.push(eye); face.pupils.push(pupil); face.brows.push(brow);
+    // lid: a fur-coloured dome that rotates down over the eye (open ≈ 1.45, closed ≈ -1.5)
+    const lid = new T.Group(); eye.add(lid);
+    lid.add(noInk(new T.Mesh(new T.SphereGeometry(0.064, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), fur)));
+    lid.rotation.x = 1.45;
+    const x = new T.Group(); x.position.z = -0.06; x.visible = false; eye.add(x);
+    for (const r of [-0.785, 0.785]) { const bar = noInk(new T.Mesh(new T.BoxGeometry(0.085, 0.016, 0.01), black)); bar.rotation.z = r; x.add(bar); }
+    const brow = noInk(new T.Mesh(new T.BoxGeometry(0.1, 0.022, 0.025), std(0x1d1410))); brow.position.set(s * 0.1, 0.16, -0.235); brow.userData.side = s; head.add(brow);
+    face.eyes.push(eye); face.pupils.push(pupil); face.brows.push(brow); face.lids.push(lid); face.xs.push(x);
   }
+  if (a.extra === 'scar') { const scar = noInk(new T.Mesh(new T.BoxGeometry(0.018, 0.16, 0.012), toon(0x8a7468))); scar.position.set(0.1, 0.1, -0.245); scar.rotation.set(-0.3, 0, 0.35); head.add(scar); }
   const mouthY = {cone: -0.13, disk: -0.175, box: -0.115}[a.snoutShape];
   const mouthZ = {cone: -0.36, disk: -0.29, box: snoutTipZ - 0.008}[a.snoutShape];
-  const mouth = new T.Mesh(new T.SphereGeometry(0.05, 14, 10), std(0x3a0f0f, 0.6)); mouth.position.set(0, mouthY, mouthZ); mouth.scale.set(1.3, 0.12, 0.35); head.add(mouth);
-  const smile = new T.Mesh(new T.TorusGeometry(0.05, 0.011, 6, 16, Math.PI), std(0x1d1410)); smile.position.set(0, mouthY + 0.02, mouthZ - 0.005); smile.rotation.z = Math.PI; smile.visible = false; head.add(smile);
+  const mouth = noInk(new T.Mesh(new T.SphereGeometry(0.05, 14, 10), std(0x3a0f0f, 0.6))); mouth.position.set(0, mouthY, mouthZ); mouth.scale.set(1.3, 0.12, 0.35); head.add(mouth);
+  const smile = noInk(new T.Mesh(new T.TorusGeometry(0.05, 0.011, 6, 16, Math.PI), std(0x1d1410))); smile.position.set(0, mouthY + 0.02, mouthZ - 0.005); smile.rotation.z = Math.PI; smile.visible = false; head.add(smile);
   face.mouth = mouth; face.smile = smile;
 
   // ears / horns
+  const ears = [];
   for (const s of [-1, 1]) {
     let ear;
-    if (a.ear === 'pointy') { ear = new T.Mesh(new T.ConeGeometry(0.08, 0.2, 8), std(a.head)); ear.position.set(s * 0.15, 0.27, 0); }
-    else if (a.ear === 'flop') { ear = new T.Mesh(new T.ConeGeometry(0.08, 0.16, 8), std(a.head)); ear.position.set(s * 0.18, 0.2, -0.05); ear.rotation.z = s * 2.2; }
-    else if (a.ear === 'round') { ear = new T.Mesh(new T.SphereGeometry(0.08, 10, 8), std(a.head)); ear.position.set(s * 0.18, 0.22, 0); }
-    else { ear = new T.Mesh(new T.ConeGeometry(0.045, 0.3, 8), std(0xe8dcc4, 0.5)); ear.position.set(s * 0.28, 0.17, -0.02); ear.rotation.z = -s * 1.1; }
-    head.add(ear);
-    const arm = new T.Mesh(new T.CylinderGeometry(0.07, 0.07, 0.55, 8), std(a.body));
-    arm.position.set(s * 0.3, 0.45, -0.25); arm.rotation.x = -1.1; torso.add(arm);
+    if (a.ear === 'pointy') {
+      ear = new T.Group(); ear.position.set(s * 0.15, 0.24, 0);
+      const outer = new T.Mesh(new T.ConeGeometry(0.08, 0.2, 8), fur); outer.position.y = 0.04; ear.add(outer);
+      const inner = noInk(new T.Mesh(new T.ConeGeometry(0.045, 0.13, 8), toon(0x2a1a14))); inner.position.set(0, 0.03, -0.035); ear.add(inner);
+    } else if (a.ear === 'flop') { ear = new T.Mesh(new T.ConeGeometry(0.08, 0.16, 8), fur); ear.position.set(s * 0.18, 0.2, -0.05); ear.rotation.z = s * 2.2; }
+    else if (a.ear === 'round') { ear = new T.Mesh(new T.SphereGeometry(0.08, 12, 10), fur); ear.position.set(s * 0.18, 0.22, 0); }
+    else { ear = new T.Mesh(new T.ConeGeometry(0.045, 0.3, 10), toon(0xe8dcc4)); ear.position.set(s * 0.28, 0.17, -0.02); ear.rotation.z = -s * 1.1; }
+    ear.userData.rz = ear.rotation.z; head.add(ear); ears.push(ear);
   }
 
   // accessory
-  const acc = std(a.accColor, 0.6);
+  const acc = toon(a.accColor);
   if (a.acc === 'bowtie') {
-    const neck = new T.Group(); neck.position.set(0, 0.8, -0.28); torso.add(neck);
+    const neck = new T.Group(); neck.position.set(0, 0.8, -0.24); fig.add(neck);
     for (const s of [-1, 1]) { const w = new T.Mesh(new T.ConeGeometry(0.05, 0.09, 4), acc); w.rotation.z = s * Math.PI / 2; w.position.x = s * 0.045; neck.add(w); }
     neck.add(new T.Mesh(new T.SphereGeometry(0.022, 8, 6), acc));
   } else if (a.acc === 'cap') {
-    const cap = new T.Mesh(new T.CylinderGeometry(0.24, 0.26, 0.09, 18), acc); cap.position.set(0, 0.22, 0.01); cap.rotation.x = -0.12; head.add(cap);
+    const cap = new T.Mesh(new T.CylinderGeometry(0.24, 0.26, 0.09, 20), acc); cap.position.set(0, 0.22, 0.01); cap.rotation.x = -0.12; head.add(cap);
     const brim = new T.Mesh(new T.BoxGeometry(0.3, 0.02, 0.16), acc); brim.position.set(0, 0.19, -0.25); brim.rotation.x = 0.1; head.add(brim);
   } else if (a.acc === 'scarf') {
-    const sc = new T.Mesh(new T.TorusGeometry(0.24, 0.065, 8, 20), acc); sc.rotation.x = Math.PI / 2; sc.position.y = 0.82; torso.add(sc);
-    const tail = new T.Mesh(new T.BoxGeometry(0.09, 0.28, 0.04), acc); tail.position.set(0.12, 0.68, -0.27); tail.rotation.z = 0.15; torso.add(tail);
+    const sc = new T.Mesh(new T.TorusGeometry(0.22, 0.065, 8, 22), acc); sc.rotation.x = Math.PI / 2; sc.position.y = 0.8; fig.add(sc);
+    const tail = new T.Mesh(new T.BoxGeometry(0.09, 0.28, 0.04), acc); tail.position.set(0.12, 0.66, -0.27); tail.rotation.set(-0.3, 0, 0.15); fig.add(tail);
   }
 
+  // arms (the IK places them every frame; start at rest)
+  const arms = [makeArm(a, -1), makeArm(a, 1)];
+  for (const arm of arms) { fig.add(arm.upper, arm.fore, arm.joint, arm.cap, arm.hand); solveArm(arm, restHand(arm.side)); }
+
+  ink(fig);
   g.add(chair, back, torso);
-  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  g.userData = {torso, head, face, kind};
+  g.traverse(o => { if (o.isMesh && o.material !== INK) o.castShadow = true; });
+  g.userData = {torso, head, face, kind, arms, ears};
   return g;
 }
+// where a paw rests on the table edge, in torso space (the rim is 0.7 in front, 0.36 above the torso origin)
+const restHand = side => new T.Vector3(side * 0.27, 0.37, -0.68);
 
-/* Face controller: blink, look, talk, fear, smile, dead. */
-function animateFace(ch, st, t, dt, lookWorld) {
-  const {torso, head, face} = ch.userData;
+/* Character controller: face (blink, look, talk, fear, smile, dead), body, arms and gestures.
+   opt.grip: world position of the gun grip while this character holds the gun (the arm on
+   that side reaches it); opt.gunQ: the gun's world rotation, to wrap the paw around the grip. */
+const GESTURE = {knock: 0.55, push: 0.6, push2: 0.7, toss: 0.5, slam: 0.6};
+const _v = new T.Vector3(), _tq = new T.Quaternion();
+function animateFace(ch, st, t, dt, lookWorld, opt = {}) {
+  const {torso, head, face, arms, ears} = ch.userData;
   const k = d => 1 - Math.exp(-dt * d);
   // blink
-  if (t > st.nextBlink) { st.blinkUntil = t + 0.12; st.nextBlink = t + 2 + Math.random() * 4; }
+  if (t > st.nextBlink) { st.blinkUntil = t + 0.13; st.nextBlink = t + 2 + Math.random() * 4; }
   const blink = t < st.blinkUntil;
   // startle: a flinch when someone else's gun goes off
   const startled = t < st.startle && !st.dead;
   const fear = (st.fear || startled) && !st.dead, happy = t < st.happyUntil && !st.dead, talk = t < st.talkUntil && !st.dead;
-  const eyeY = st.dead ? 0.12 : blink ? 0.1 : fear ? 1.25 : 1;
-  for (const e of face.eyes) { e.scale.y += (eyeY - e.scale.y) * k(blink ? 40 : 12); e.scale.x += ((fear ? 1.15 : 1) - e.scale.x) * k(12); }
+  // eyes: lids do the blinking; fear widens the eye, confidence makes it smug (half-lidded)
+  const lidT = st.dead ? -0.2 : blink ? -1.5 : fear ? 1.6 : happy ? 0.45 : st.confident ? 0.3 : 1.45;
+  for (const l of face.lids) l.rotation.x += (lidT - l.rotation.x) * k(blink ? 45 : 12);
+  for (const e of face.eyes) { const sc = fear ? 1.15 : 1; e.scale.x += (sc - e.scale.x) * k(12); e.scale.y += (sc - e.scale.y) * k(12); }
   for (const p of face.pupils) p.visible = !st.dead;
+  for (const x of face.xs) x.visible = st.dead;
   // pupils + head follow the look target
   let yaw = 0;
   if (lookWorld && !st.dead) {
-    const lh = head.worldToLocal(lookWorld.clone());
+    const lh = head.worldToLocal(_v.copy(lookWorld));
     const len = lh.length() || 1;
     for (const p of face.pupils) {
       p.position.x += (p.userData.base.x + Math.max(-0.02, Math.min(0.02, lh.x / len * 0.03)) - p.position.x) * k(10);
       p.position.y += (p.userData.base.y + Math.max(-0.015, Math.min(0.015, lh.y / len * 0.03)) - p.position.y) * k(10);
     }
-    const lt = torso.worldToLocal(lookWorld.clone());
+    const lt = torso.worldToLocal(_v.copy(lookWorld));
     yaw = Math.max(-0.7, Math.min(0.7, Math.atan2(-lt.x, -lt.z)));
   }
   head.rotation.y += ((st.dead ? 0 : yaw * 0.75) - head.rotation.y) * k(3);
   // a bullet snaps the head away from the gun, fast, and it stays tipped over
   const hitFast = st.hitT != null && t - st.hitT < 0.25;
   head.rotation.z += ((st.dead && st.hitSide ? st.hitSide * 0.5 : 0) - head.rotation.z) * k(hitFast ? 28 : 4);
+  // ears: flatten back in fear, perk up when happy, an idle twitch now and then
+  const twitch = !st.dead && Math.sin(t * 0.9 + st.phase * 3) > 0.985 ? Math.sin(t * 40) * 0.15 : 0;
+  ears.forEach((e, i) => { const s = i ? 1 : -1; const tgt = e.userData.rz + (fear ? s * -0.35 : happy ? s * 0.12 : 0) + twitch * s; e.rotation.z += (tgt - e.rotation.z) * k(10); });
   // brows
   for (const b of face.brows) {
     const s = b.userData.side;
-    const ty = fear ? 0.19 : happy ? 0.16 : 0.16;
+    const ty = fear ? 0.19 : 0.16;
     const rz = fear ? s * 0.35 : happy ? -s * 0.2 : st.confident ? -s * 0.3 : 0;
     b.position.y += (ty - b.position.y) * k(10);
     b.rotation.z += (rz - b.rotation.z) * k(10);
@@ -153,8 +301,37 @@ function animateFace(ch, st, t, dt, lookWorld) {
   torso.position.y = 0.6 + (st.dead ? 0 : Math.sin(t * 1.6 + st.phase) * 0.012) + jump;
   torso.rotation.z += ((st.dead && st.hitSide ? st.hitSide * 0.18 : 0) - torso.rotation.z) * k(hitFast ? 14 : 3);
   torso.position.x = fear ? (Math.random() - 0.5) * 0.015 : 0;
+
+  // arms: rest on the table, play a gesture, hold the gun, or hang when out
+  const g = st.gesture && (t - st.gesture.t0) / (GESTURE[st.gesture.kind] || 0.5);
+  if (g >= 1) st.gesture = null;
+  let gunArm = null, gripLocal = null;
+  if (opt.grip && !st.dead) { gripLocal = torso.worldToLocal(_v.copy(opt.grip)); gunArm = gripLocal.x >= 0 ? arms[1] : arms[0]; }
+  for (const arm of arms) {
+    const s = arm.side, want = restHand(s);
+    want.y += Math.sin(t * 1.6 + st.phase + s) * 0.006; // breathing
+    if (st.dead) want.set(s * 0.3, 0.3, -0.56);
+    else if (st.gesture && g < 1) {
+      const kind = st.gesture.kind, main = s > 0; // the right paw leads
+      const bump = Math.sin(Math.PI * g);
+      if (kind === 'knock' && main) want.y += Math.abs(Math.sin(g * Math.PI * 2)) * 0.11;
+      if ((kind === 'push' && main) || kind === 'push2') { want.z -= bump * 0.2; want.y += bump * 0.05; want.x -= s * bump * 0.08; }
+      if (kind === 'toss' && main) { want.y += bump * 0.16; want.z -= bump * 0.12; }
+      if (kind === 'slam') want.y += g < 0.6 ? Math.sin(Math.PI * g / 0.6) * 0.28 : 0;
+    } else if (fear && arm !== gunArm) { want.set(s * 0.2, 0.55 + Math.sin(t * 31) * 0.01, -0.42); } // paw clutched to the chest
+    if (!arm.cur) arm.cur = want.clone();
+    if (arm === gunArm) {
+      arm.cur.lerp(gripLocal, k(30));
+      // paw wraps the grip: follow the gun's rotation, in torso space
+      _tq.copy(torso.getWorldQuaternion(_q).invert()).multiply(opt.gunQ);
+      solveArm(arm, arm.cur, _tq);
+    } else {
+      arm.cur.lerp(want, k(st.gesture && g < 1 ? 22 : 9));
+      solveArm(arm, arm.cur);
+    }
+  }
 }
-const newFaceState = () => ({nextBlink: Math.random() * 3, blinkUntil: 0, talkUntil: 0, happyUntil: 0, fear: false, dead: false, relief: 0, phase: Math.random() * 6, confident: false, startle: 0, hitT: null, hitSide: 0});
+const newFaceState = () => ({nextBlink: Math.random() * 3, blinkUntil: 0, talkUntil: 0, happyUntil: 0, fear: false, dead: false, relief: 0, phase: Math.random() * 6, confident: false, startle: 0, hitT: null, hitSide: 0, gesture: null});
 
 /* ---------- portrait renderer for the character picker ---------- */
 function renderPortraits(w = 220, h = 250) {
@@ -163,9 +340,10 @@ function renderPortraits(w = 220, h = 250) {
   try { r = new T.WebGLRenderer({antialias: true, preserveDrawingBuffer: true}); } catch (e) { return out; }
   r.setSize(w, h); r.outputEncoding = T.sRGBEncoding;
   const sc = new T.Scene(); sc.background = new T.Color(0x1a120c);
-  sc.add(new T.HemisphereLight(0x8a6a48, 0x1a120c, 0.7));
-  const key = new T.SpotLight(0xffc77a, 2.2, 8, Math.PI / 5, 0.6, 1); key.position.set(0.6, 3, -1.6); key.target.position.set(0, 1.5, 0); sc.add(key, key.target);
-  const rim = new T.DirectionalLight(0xe2a64a, 0.6); rim.position.set(-1, 2, 1); sc.add(rim);
+  // gentler than the table lamp: toon materials jump straight to their top band
+  sc.add(new T.HemisphereLight(0x8a6a48, 0x1a120c, 0.45));
+  const key = new T.SpotLight(0xffc77a, 1.05, 8, Math.PI / 5, 0.6, 1); key.position.set(0.6, 3, -1.6); key.target.position.set(0, 1.5, 0); sc.add(key, key.target);
+  const rim = new T.DirectionalLight(0xe2a64a, 0.35); rim.position.set(-1, 2, 1); sc.add(rim);
   const cam = new T.PerspectiveCamera(30, w / h, 0.1, 20); cam.position.set(0.3, 1.66, -2.05); cam.lookAt(0, 1.5, 0);
   for (const kind of Object.keys(CHARACTERS)) {
     const ch = makeAnimal(kind); sc.add(ch);
@@ -316,6 +494,8 @@ function createScene(canvas, labelLayer) {
     return g;
   }
   const HAMMER_REST = -0.3, HAMMER_COCKED = 0.75, MUZZLE = new T.Vector3(0.46, 0, 0);
+  // where a paw holds the grip, and how it turns so the fingers wrap around it
+  const GRIP = new T.Vector3(-0.17, -0.08, 0), GRIP_Q = new T.Quaternion().setFromEuler(new T.Euler(0, Math.PI / 2, 0.35));
   const bulletGeo = new T.CylinderGeometry(0.022, 0.022, 0.09, 10);
   const tipGeo = new T.SphereGeometry(0.022, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2);
   function makeBullet() {
@@ -871,6 +1051,7 @@ function createScene(canvas, labelLayer) {
     const s = seats[pid]; if (!s) return;
     const t = now();
     if (kind === 'talk') s.face.talkUntil = t + 0.7;
+    if (GESTURE[kind]) s.face.gesture = {kind, t0: t};
     if (kind === 'happy') s.face.happyUntil = t + 2.2;
   }
 
@@ -960,7 +1141,13 @@ function createScene(canvas, labelLayer) {
         tw(0.12, q => { if (ga.phase === 'load') U.cyl.rotation.x = r0 + (r1 - r0) * q; }, {delay: 0.05, ease: fx.ease.out});
       }
     }
-    seats.forEach((s, i) => { if (s.group.visible) animateFace(s.group, s.face, t, dt, lookTargetFor(i)); });
+    // whoever holds the gun reaches for its grip (until it drops out of their hand)
+    let held = null;
+    if (ga.phase && ga.pid != null && !ga.drop && seats[ga.pid] && ga.pid !== viewerSeat) {
+      gun.updateMatrixWorld(true);
+      held = {grip: U.body.localToWorld(GRIP.clone()), gunQ: U.body.getWorldQuaternion(new T.Quaternion()).multiply(GRIP_Q)};
+    }
+    seats.forEach((s, i) => { if (s.group.visible) animateFace(s.group, s.face, t, dt, lookTargetFor(i), i === ga.pid ? held || {} : {}); });
     // lamp: gentle sway, kicked hard by a gunshot; the bulb stutters after it
     lampKick = Math.max(0, lampKick - dt * 0.35);
     const sway = Math.sin(t * 0.7) * 0.03 + Math.sin(t * 2.6) * 0.22 * lampKick;

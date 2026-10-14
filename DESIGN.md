@@ -76,21 +76,36 @@ The host picks one of three games in the room before starting (shown in the open
 - **Type:** *Playfair Display* (italic 900) for the logo and big moments ("BANG!"), *Alfa Slab One* for the showdown board, *Be Vietnam Pro* for UI text, *JetBrains Mono* for numbers and labels.
 
 ### 3.2 Characters **[Design]**
-Low-poly, built from primitives, chunky proportions (big head, small body), seated at the table.
+Built from primitives, chunky proportions (big head, round body), seated at the table. **Toon look:** characters use `MeshToonMaterial` with a 3-step ramp and black inked outlines (an inverted hull: a back-face copy of each mesh grown by ~0.011 units; tiny parts like pupils, nostrils and brows are left un-inked). The ink is pure black because material colours are linear: even a dark brown turns into a light rim after sRGB output. The table, cards and gun keep the standard materials. Each animal has a job or attitude that shows in its clothes.
 
-| Key | Name | Animal | Look | Accessory | Personality (bot) |
-|---|---|---|---|---|---|
-| `fox` | Rusty | Red fox | Orange fur, cream muzzle, pointed ears, black nose tip | Green bow tie | Sly: bluffs more |
-| `pig` | Truffle | Pig | Pink, flat round snout with two nostrils, floppy ears | Grey flat cap | Reckless: calls a lot |
-| `bear` | Bruno | Brown bear | Dark brown, round ears, big black nose | Red scarf | Steady: plays tight |
-| `bull` | Tank | Bull | Charcoal, wide muzzle, ivory horns | Gold nose ring | Aggressive: raises a lot |
+| Key | Name | Animal | Look | Outfit | Accessory | Personality (bot) |
+|---|---|---|---|---|---|---|
+| `fox` | Rusty | Red fox | Orange fur, cream muzzle, pointed ears with dark insides, black nose tip, dark paws | Cream shirt, open green waistcoat with gold buttons, pocket watch on a chain | Green bow tie | Sly: bluffs more |
+| `pig` | Truffle | Pig | Pink, flat round snout with two nostrils, floppy ears, bare arms | The butcher: blue-grey shirt, white apron with a bib, neck strap and a stain | Grey flat cap | Reckless: calls a lot |
+| `bear` | Bruno | Brown bear | Brown, round ears, big black nose | Teal knit sweater with a ribbed hem, cuffs and two cream bands | Red scarf | Steady: plays tight |
+| `bull` | Tank | Bull | Charcoal, wide muzzle, ivory horns, a scar over one eye | White tank top under an open leather jacket with lapels and collar | Gold nose ring | Aggressive: raises a lot |
+
+**Arms (every character):** upper arm, forearm, elbow and a paw (palm, thumb, three finger nubs), placed every frame by two-bone IK in torso space with the elbows bending out and down. Paws rest on the table rim and breathe with the body.
+
+| Moment | Arms |
+|---|---|
+| Check | Right paw knocks the table twice |
+| Call / Raise / Bid / Liar's Deck play | Right paw pushes forward |
+| All-in | Both paws push forward |
+| Fold | Right paw flicks the cards away |
+| Calls Liar | Both paws rise and slam the table |
+| Holds the gun | The arm on the gun's side reaches the grip and follows the gun (load, aim, recoil) until it drops |
+| Gun on them | The free paw clutches the chest and trembles |
+| Out | Arms go limp with the slump |
 
 **Face kit (every character):**
 - **Eyes:** white sclera + black pupil + small highlight. Pupils track whoever is acting.
-- **Blink:** every 2–6 s at random, 120 ms.
+- **Lids:** fur-coloured domes that roll down over the eyes. Blink every 2–6 s (130 ms); half-lidded when smug (big bet) or smiling; pulled right back in fear.
 - **Brows:** two dark bars. Neutral → raised (fear) → angled down (confident).
+- **Ears:** flatten back in fear, perk up when happy, twitch now and then.
 - **Nose:** species-specific (see table).
 - **Mouth:** dark opening whose height animates. Closed normally, flaps while "talking" (when they act), wide open in fear, smile arc when they win.
+- **Out:** two crossed black bars over each eye.
 
 **Expressions:**
 
@@ -99,7 +114,7 @@ Low-poly, built from primitives, chunky proportions (big head, small body), seat
 | Their turn / acting | Mouth flaps for about 0.6 s, head turns to the table |
 | Gun on them | Eyes wide, brows up, mouth open, body trembles |
 | Survived (click) | Big exhale: head drops then recovers, short smile |
-| Died (bang) | Slumps forward onto the table, eyes become "X" (pupils hidden) |
+| Died (bang) | Head snaps away from the gun, slumps forward onto the table, eyes become "X" |
 | Won the hand | Smile arc + brows confident for 2 s |
 
 ### 3.3 Table objects
@@ -262,7 +277,8 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 - [x] Shot cam dolly, hit-stop and slow motion on BANG (§3.4)
 - [x] Muzzle flash, sparks, gun smoke, sweat, exhale, God Save light shaft and gold dust (§3.4)
 - [ ] **[Future]** Smoke particles in the lamp cone
-- [ ] **[Future]** Character hands that actually hold the gun
+- [x] Character arms and paws: gestures, and the hand that actually holds the gun
+- [x] Toon shading and inked outlines for the characters
 - [x] Online tables: lobby list, host / join by code or invite link (see §8)
 - [ ] **[Future]** Reconnect to a running game after a page refresh
 - [ ] **[Future]** Host migration (game survives the host leaving)

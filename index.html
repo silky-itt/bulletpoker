@@ -508,13 +508,15 @@ const ctl = {
 /* ---------- game events → sound + faces ---------- */
 function onEvent(type, d, S){
   const talk = () => scene3d && d.pid != null && scene3d.react(d.pid, 'talk');
+  // body language: knock to check, push bullets or cards forward, toss a fold, slam the table on Liar
+  const gest = kind => scene3d && d.pid != null && scene3d.react(d.pid, kind);
   switch (type) {
     case 'deal': audio.play('deal', {count: d.count, delay: PokerScene.DEAL.shuffle, gap: PokerScene.DEAL.gap[S.mode] || PokerScene.DEAL.gap.poker}); break;
     case 'board': audio.play('board', d.count); break;
-    case 'check': audio.play('check'); talk(); break;
-    case 'bet': audio.play('bet', d.added); talk(); break;
-    case 'allin': audio.play('allin'); talk(); break;
-    case 'fold': audio.play('fold'); talk(); break;
+    case 'check': audio.play('check'); talk(); gest('knock'); break;
+    case 'bet': audio.play('bet', d.added); talk(); gest('push'); break;
+    case 'allin': audio.play('allin'); talk(); gest('push2'); break;
+    case 'fold': audio.play('fold'); talk(); gest('toss'); break;
     case 'switch': audio.play('switch'); break;
     case 'loadStart': audio.play('loadStart'); audio.tension(true); vignette(d.pid); break;
     case 'loadBullet': audio.play('loadBullet'); break;
@@ -527,9 +529,9 @@ function onEvent(type, d, S){
     case 'yourTurn': if (d.pid === viewer) audio.play('yourTurn'); break;
     case 'gameOver': audio.play(d.winner === viewer ? 'win' : 'lose'); break;
     case 'roll': audio.play('dice', d.count); break;
-    case 'play': audio.play('slap', {n: d.n}); talk(); break;
-    case 'bid': audio.play('bet', 1); talk(); break;
-    case 'liar': audio.play('liar'); talk(); if (scene3d && S.result) scene3d.react(S.result.accused, 'talk'); break;
+    case 'play': audio.play('slap', {n: d.n}); talk(); gest('push'); break;
+    case 'bid': audio.play('bet', 1); talk(); gest('push'); break;
+    case 'liar': audio.play('liar'); talk(); gest('slam'); if (scene3d && S.result) scene3d.react(S.result.accused, 'talk'); break;
     case 'reveal': audio.play(S.mode === 'dice' ? 'dice' : 'switch', 2); break;
   }
 }
