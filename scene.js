@@ -118,8 +118,15 @@ function solveArm(arm, target, handQ) {
 function makeAnimal(kind) {
   const a = CHARACTERS[kind] || CHARACTERS.fox;
   const g = new T.Group();
-  const chair = new T.Mesh(new T.BoxGeometry(0.7, 0.08, 0.7), wood(0x3a2414)); chair.position.y = 0.55;
-  const back = new T.Mesh(new T.BoxGeometry(0.7, 0.9, 0.08), wood(0x3a2414)); back.position.set(0, 1.0, 0.33);
+  // wooden chair: seat, four legs, two back posts, a top rail and slats
+  const cm = root.PokerRoom ? root.PokerRoom.materials().chair : wood(0x3a2414);
+  const chair = new T.Group(), part = (geo, x, y, z) => { const m = new T.Mesh(geo, cm); m.position.set(x, y, z); chair.add(m); return m; };
+  part(new T.BoxGeometry(0.7, 0.07, 0.66), 0, 0.55, 0);
+  for (const [x, z] of [[-0.3, -0.28], [0.3, -0.28], [-0.3, 0.28], [0.3, 0.28]]) part(new T.CylinderGeometry(0.035, 0.03, 0.52, 8), x, 0.26, z);
+  for (const x of [-0.3, 0.3]) part(new T.CylinderGeometry(0.035, 0.035, 0.95, 8), x, 1.0, 0.31);
+  part(new T.BoxGeometry(0.7, 0.12, 0.05), 0, 1.42, 0.31);
+  for (const x of [-0.15, 0, 0.15]) part(new T.BoxGeometry(0.06, 0.65, 0.03), x, 1.0, 0.31);
+  const back = new T.Group();
   const torso = new T.Group(); torso.position.y = 0.6;
   const fig = new T.Group(); torso.add(fig); // everything that gets inked
   const fur = toon(a.head), body = toon(a.body);
@@ -236,8 +243,8 @@ function makeAnimal(kind) {
   g.userData = {torso, head, face, kind, arms, ears};
   return g;
 }
-// where a paw rests on the table edge, in torso space (the rim is 0.7 in front, 0.36 above the torso origin)
-const restHand = side => new T.Vector3(side * 0.27, 0.37, -0.68);
+// where a paw rests on the padded rail, in torso space (its top is ~0.7 in front, 0.46 above the torso origin)
+const restHand = side => new T.Vector3(side * 0.27, 0.47, -0.7);
 
 /* Character controller: face (blink, look, talk, fear, smile, dead), body, arms and gestures.
    opt.grip: world position of the gun grip while this character holds the gun (the arm on
@@ -295,7 +302,8 @@ function animateFace(ch, st, t, dt, lookWorld, opt = {}) {
   face.smile.visible = happy;
   face.mouth.visible = !happy || talk;
   // body: breathe, tremble, slump
-  const slump = st.dead ? 0.95 : st.relief && t < st.relief ? 0.25 : 0;
+  // forward is -z, so a negative pitch tips the head toward the table
+  const slump = st.dead ? -0.95 : st.relief && t < st.relief ? -0.25 : 0;
   torso.rotation.x += (slump - torso.rotation.x) * k(st.dead ? 2.5 : 4);
   const jump = startled ? Math.max(0, Math.sin(Math.min(1, (t - st.startle + 0.7) / 0.35) * Math.PI)) * 0.05 : 0;
   torso.position.y = 0.6 + (st.dead ? 0 : Math.sin(t * 1.6 + st.phase) * 0.012) + jump;
@@ -310,7 +318,8 @@ function animateFace(ch, st, t, dt, lookWorld, opt = {}) {
   for (const arm of arms) {
     const s = arm.side, want = restHand(s);
     want.y += Math.sin(t * 1.6 + st.phase + s) * 0.006; // breathing
-    if (st.dead) want.set(s * 0.3, 0.3, -0.56);
+    // out: paws sprawled on the felt either side of the head (set in the seat's frame, then into the slumped torso's)
+    if (st.dead) want.set(s * 0.6, 0.5, -0.72).applyQuaternion(_tq.copy(torso.quaternion).invert());
     else if (st.gesture && g < 1) {
       const kind = st.gesture.kind, main = s > 0; // the right paw leads
       const bump = Math.sin(Math.PI * g);
@@ -366,12 +375,12 @@ function createScene(canvas, labelLayer) {
   renderer.outputEncoding = T.sRGBEncoding;
   const scene = new T.Scene();
   scene.background = new T.Color(0x0d0a08);
-  scene.fog = new T.Fog(0x0d0a08, 5, 13);
+  scene.fog = new T.Fog(0x0d0a08, 6.5, 17); // far enough that the walls of the bar read
   const camera = new T.PerspectiveCamera(55, 1, 0.05, 50);
   camera.position.set(0, 4.4, 3.6);
 
   // room & light
-  scene.add(new T.HemisphereLight(0x5a4632, 0x0a0806, 0.55));
+  scene.add(new T.HemisphereLight(0x5a4632, 0x0a0806, 0.6));
   const lamp = new T.SpotLight(0xffc77a, 2.4, 12, Math.PI / 4.2, 0.55, 1.4);
   lamp.position.set(0, 3.6, 0); lamp.target.position.set(0, 0, 0);
   lamp.castShadow = true; lamp.shadow.mapSize.set(1024, 1024); lamp.shadow.bias = -0.0005;
@@ -388,18 +397,29 @@ function createScene(canvas, labelLayer) {
   const bulb = new T.Mesh(new T.SphereGeometry(0.09, 16, 12), new T.MeshBasicMaterial({color: 0xffe2a8})); bulb.position.y = 3.1;
   const cord = new T.Mesh(new T.CylinderGeometry(0.01, 0.01, 2), new T.MeshBasicMaterial({color: 0x111111})); cord.position.y = 4.4;
   lampGroup.add(shade, bulb, cord); scene.add(lampGroup);
-  const floor = new T.Mesh(new T.CircleGeometry(12, 48), wood(0x1c130d, 0.9)); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
-  const wall = new T.Mesh(new T.CylinderGeometry(7, 7, 6, 40, 1, true), new T.MeshStandardMaterial({color: 0x1a120c, side: T.BackSide, roughness: 1})); wall.position.y = 3; scene.add(wall);
-  const shelf = new T.Mesh(new T.BoxGeometry(3.2, 0.08, 0.4), wood(0x3a2616)); shelf.position.set(0, 1.9, -6.6); scene.add(shelf);
-  [0x2d5a3a, 0x6a3a1a, 0x8a7a3a, 0x3a2a5a, 0x5a1a1a, 0x2a4a5a].forEach((c, i) => {
-    const b = new T.Mesh(new T.CylinderGeometry(0.07, 0.08, 0.42, 12), new T.MeshStandardMaterial({color: c, roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.85}));
-    b.position.set(-1.3 + i * 0.52, 2.15, -6.6); scene.add(b);
-  });
-  const tableG = new T.Group();
-  const rim = new T.Mesh(new T.CylinderGeometry(TABLE_R + 0.12, TABLE_R + 0.15, 0.14, 64), wood(0x4a2c18, 0.55)); rim.position.y = 0.86; rim.castShadow = rim.receiveShadow = true;
-  const felt = new T.Mesh(new T.CylinderGeometry(TABLE_R - 0.05, TABLE_R - 0.05, 0.02, 64), std(0x1f4a32, 0.95)); felt.position.y = 0.94; felt.receiveShadow = true;
-  const leg = new T.Mesh(new T.CylinderGeometry(0.18, 0.35, 0.86, 16), wood(0x2a190e)); leg.position.y = 0.43;
-  tableG.add(rim, felt, leg); scene.add(tableG);
+  // the bar around us and the table itself (room.js)
+  const room = root.PokerRoom.build(scene, {TABLE_R, TOP, low: !!(root.matchMedia && root.matchMedia('(pointer: coarse)').matches)});
+  // Reflections for metal and glass: a small painted panorama of the bar (warm lamp overhead, dark
+  // walls, a band of amber bottle light at eye level, dark floor), prefiltered with PMREM.
+  // Without it, metallic materials have nothing to reflect and render nearly black.
+  const envTex = (() => {
+    try {
+      const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128;
+      const g = cv.getContext('2d');
+      const sky = g.createLinearGradient(0, 0, 0, 128);
+      sky.addColorStop(0, '#6a5030'); sky.addColorStop(0.3, '#2a1c12'); sky.addColorStop(0.5, '#1c130c'); sky.addColorStop(0.62, '#120c08'); sky.addColorStop(1, '#0a0705');
+      g.fillStyle = sky; g.fillRect(0, 0, 256, 128);
+      const lampG = g.createRadialGradient(128, 0, 0, 128, 0, 60); lampG.addColorStop(0, 'rgba(255,220,160,0.9)'); lampG.addColorStop(1, 'rgba(255,200,120,0)');
+      g.fillStyle = lampG; g.fillRect(0, 0, 256, 60);
+      for (let i = 0; i < 26; i++) { g.fillStyle = `rgba(255,${150 + (i * 37) % 80},70,${0.25 + (i * 13 % 10) / 30})`; g.fillRect(96 + i * 2.4, 58 + (i % 3) * 3, 2, 6); }
+      g.fillStyle = 'rgba(255,60,90,.35)'; g.fillRect(150, 44, 14, 4); // neon
+      const t = new T.CanvasTexture(cv); t.encoding = T.sRGBEncoding; t.mapping = T.EquirectangularReflectionMapping;
+      const pm = new T.PMREMGenerator(renderer); const rt = pm.fromEquirectangular(t); pm.dispose(); t.dispose();
+      return rt.texture;
+    } catch (e) { return null; }
+  })();
+  const shiny = m => { if (envTex && m && m.isMeshStandardMaterial && (m.metalness > 0.2 || m.transparent)) { m.envMap = envTex; m.envMapIntensity = m.transparent ? 0.6 : 1; m.needsUpdate = true; } };
+  const shineAll = o => o.traverse(x => { if (x.isMesh) [].concat(x.material).forEach(shiny); });
 
   // card textures
   const texCache = new Map();
@@ -640,6 +660,124 @@ function createScene(canvas, labelLayer) {
   const faceDir = i => V(0, 0, -1).applyQuaternion(seats[i].group.userData.head.getWorldQuaternion(new T.Quaternion()));
   const tw = (dur, fn, opt) => fx.tween(dur, fn, opt);
 
+  /* ----- bar ambience: haze in the lamp cone, dust, a smoking ashtray, drinks, neon, a moth ----- */
+  // a faint cone of light under the shade; it sways with the lamp
+  const haze = new T.Mesh(new T.CylinderGeometry(0.1, 1.9, 2.6, 32, 1, true), new T.MeshBasicMaterial({map: rayTex, color: 0xffc77a, transparent: true, opacity: 0.05, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide, fog: false}));
+  haze.position.y = 3.05 - 1.3; lampGroup.add(haze);
+  // dust motes drifting through the light (a few dozen alive at a time)
+  fx.emit(4.5, Infinity, () => {
+    const y = rand(TOP + 0.15, 2.9), rMax = (3.6 - y) * 0.85, r = Math.sqrt(Math.random()) * rMax, a = rand(0, Math.PI * 2);
+    return {pos: V(Math.cos(a) * r, y, Math.sin(a) * r), vel: V(rand(-0.025, 0.025), rand(-0.012, 0.018), rand(-0.025, 0.025)),
+      life: rand(6, 10), size: [rand(0.012, 0.02), rand(0.012, 0.02)], color: 0xffe2a8, alpha: rand(0.35, 0.6), cell: 'glow', fadeIn: 0.3};
+  });
+  // ashtray with a cigarette left burning
+  const ASH = V(-0.78, TOP, 0.5);
+  const ashtray = new T.Group(); ashtray.position.copy(ASH); ashtray.rotation.y = 0.6; scene.add(ashtray);
+  const tray = new T.Mesh(new T.CylinderGeometry(0.11, 0.12, 0.035, 20), std(0x3a3f3a, 0.25, 0.3)); tray.position.y = 0.0175;
+  const bowl = new T.Mesh(new T.CircleGeometry(0.085, 20), std(0x1a1816, 0.9)); bowl.rotation.x = -Math.PI / 2; bowl.position.y = 0.036;
+  const butt = new T.Mesh(new T.CylinderGeometry(0.009, 0.009, 0.05, 8), std(0xd9c9a0, 0.8)); butt.rotation.z = Math.PI / 2; butt.position.set(0.05, 0.03, 0.03);
+  const cig = new T.Group(); cig.position.set(0.1, 0.042, 0); cig.rotation.z = -0.12; ashtray.add(tray, bowl, butt, cig);
+  const paper = new T.Mesh(new T.CylinderGeometry(0.008, 0.008, 0.1, 8), std(0xf1ece0, 0.8)); paper.rotation.z = Math.PI / 2; paper.position.x = 0.03;
+  const filter = new T.Mesh(new T.CylinderGeometry(0.0085, 0.0085, 0.03, 8), std(0xc9894a, 0.8)); filter.rotation.z = Math.PI / 2; filter.position.x = 0.095;
+  const ember = new T.Mesh(new T.SphereGeometry(0.009, 8, 6), new T.MeshBasicMaterial({color: 0xff6a20})); ember.position.x = -0.022;
+  cig.add(paper, filter, ember);
+  ashtray.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  const emberPos = () => ember.getWorldPosition(V());
+  // a thin, curling ribbon of smoke
+  fx.emit(5, Infinity, () => {
+    const t = now(), p = emberPos();
+    return {pos: p.add(V(Math.sin(t * 1.3) * 0.01, 0.005, Math.cos(t * 0.9) * 0.01)),
+      vel: V(Math.sin(t * 0.7) * 0.03 + rand(-0.01, 0.01), rand(0.13, 0.19), Math.cos(t * 0.5) * 0.03 + rand(-0.01, 0.01)),
+      life: rand(3.2, 4.8), size: [0.02, rand(0.16, 0.26)], color: 0xb8b0a6, alpha: 0.16, cell: 'smoke', drag: 0.25, grav: -0.02, spin: rand(-0.8, 0.8), add: false, fadeIn: 0.12};
+  });
+  // a drink in front of each player: glass, amber whisky, an ice cube; rattles on bangs and slams, spills when they're out
+  const glassMat = new T.MeshStandardMaterial({color: 0xcfe3e8, transparent: true, opacity: 0.28, roughness: 0.1, depthWrite: false});
+  const whisky = new T.MeshStandardMaterial({color: 0xb5651d, transparent: true, opacity: 0.85, roughness: 0.2, emissive: 0x3a1a05});
+  const iceMat = new T.MeshStandardMaterial({color: 0xe8f4f8, transparent: true, opacity: 0.65, roughness: 0.15});
+  const spillMat = new T.MeshBasicMaterial({color: 0x2a1406, transparent: true, opacity: 0.55, depthWrite: false});
+  let glasses = [];
+  function makeGlass() {
+    const g = new T.Group();
+    const cup = new T.Mesh(new T.CylinderGeometry(0.05, 0.043, 0.1, 16, 1, true), glassMat); cup.position.y = 0.05;
+    const base = new T.Mesh(new T.CylinderGeometry(0.043, 0.043, 0.012, 16), glassMat); base.position.y = 0.006;
+    const drink = new T.Mesh(new T.CylinderGeometry(0.045, 0.042, 0.045, 16), whisky); drink.position.y = 0.035;
+    const ice = new T.Mesh(new T.BoxGeometry(0.03, 0.03, 0.03), iceMat); ice.position.set(0.01, 0.06, 0); ice.rotation.set(0.4, 0.6, 0.2);
+    cup.renderOrder = base.renderOrder = 1;
+    g.add(drink, ice, cup, base);
+    return g;
+  }
+  function setGlasses() {
+    for (const gl of glasses) { scene.remove(gl.g); if (gl.spill) scene.remove(gl.spill); }
+    glasses = seats.map((s, i) => {
+      const {out, side} = seatBasis(i), g = makeGlass();
+      g.position.copy(out.clone().multiplyScalar(CARD_R + 0.15).addScaledVector(side, -0.68)).setY(TOP);
+      scene.add(g);
+      return {g, base: g.position.clone(), jitter: 0, tipped: false, spill: null, i};
+    });
+  }
+  const rattle_ = (i, amt) => { for (const gl of glasses) if (i == null || gl.i === i) gl.jitter = Math.max(gl.jitter, amt); };
+  function tipGlass(i) {
+    const gl = glasses[i]; if (!gl || gl.tipped) return;
+    gl.tipped = true;
+    const {out} = seatBasis(i), dir = out.clone().multiplyScalar(-1); // falls toward the table centre
+    const axis = V(0, 1, 0).cross(dir).normalize();
+    const q0 = gl.g.quaternion.clone(), q1 = new T.Quaternion().setFromAxisAngle(axis, Math.PI / 2);
+    const p0 = gl.base.clone(), p1 = gl.base.clone().addScaledVector(dir, 0.05).setY(TOP + 0.045);
+    tw(0.45, (e, p) => { gl.g.quaternion.copy(q0).slerp(q1, fx.ease.bounce(p)); gl.g.position.lerpVectors(p0, p1, fx.ease.out(p)); }, {ease: fx.ease.linear, delay: 0.35});
+    // a puddle spreads out from the rim
+    const spill = new T.Mesh(new T.CircleGeometry(0.12, 20), spillMat); spill.rotation.x = -Math.PI / 2;
+    spill.position.copy(gl.base).addScaledVector(dir, 0.16).setY(TOP + 0.003); spill.scale.setScalar(0.01); scene.add(spill); gl.spill = spill;
+    tw(1.6, p => spill.scale.set(0.4 + p * 0.9, 0.3 + p * 0.6, 1), {delay: 0.6, ease: fx.ease.out});
+  }
+  function stepGlasses(t, dt) {
+    for (const gl of glasses) {
+      if (gl.tipped || gl.jitter <= 0) continue;
+      gl.jitter = Math.max(0, gl.jitter - dt * 2.2);
+      const j = gl.jitter * gl.jitter;
+      gl.g.position.set(gl.base.x + Math.sin(t * 71 + gl.i) * 0.006 * j, gl.base.y + Math.abs(Math.sin(t * 53)) * 0.008 * j, gl.base.z + Math.cos(t * 67) * 0.006 * j);
+      gl.g.rotation.set(Math.sin(t * 59) * 0.08 * j, 0, Math.cos(t * 61) * 0.08 * j);
+    }
+  }
+  // neon sign over the back shelf; it buzzes and drops out now and then
+  const neonTex = (() => {
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = 192;
+    const g = cv.getContext('2d');
+    g.font = 'italic 900 150px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineJoin = 'round';
+    for (const [w, c, blur] of [[18, 'rgba(255,60,80,.35)', 30], [9, 'rgba(255,90,110,.8)', 12], [3.5, '#ffe6ea', 0]]) {
+      g.shadowColor = 'rgba(255,40,70,.9)'; g.shadowBlur = blur; g.lineWidth = w; g.strokeStyle = c; g.strokeText('BAR', 256, 100);
+    }
+    return new T.CanvasTexture(cv);
+  })();
+  const neon = new T.Mesh(new T.PlaneGeometry(1.5, 0.56), new T.MeshBasicMaterial({map: neonTex, transparent: true, blending: T.AdditiveBlending, depthWrite: false, fog: false}));
+  // inside the round wall (radius 7), turned to face the room
+  neon.position.set(1.3, 2.85, -6.55); neon.lookAt(0, 2.85, 0); scene.add(neon);
+  const neonGlow = new T.PointLight(0xff3050, 0.6, 3.5); neonGlow.position.set(1.2, 2.8, -6.1); scene.add(neonGlow);
+  let neonOut = 0, nextNeon = rand(8, 20);
+  // a moth circling the bulb
+  const moth = new T.Group(), wingMat = new T.MeshBasicMaterial({color: 0x3a3026, side: T.DoubleSide});
+  const wings = [-1, 1].map(s => { const w = new T.Mesh(new T.PlaneGeometry(0.035, 0.025), wingMat); w.position.x = s * 0.018; const p = new T.Group(); p.add(w); p.userData.s = s; moth.add(p); return p; });
+  scene.add(moth);
+  // the bulb stutters every half minute or so
+  let nextFlicker = rand(15, 30), onFlicker = null;
+  function stepAmbience(t, dt) {
+    stepGlasses(t, dt);
+    ember.material.color.setRGB(1, 0.35 + 0.15 * Math.sin(t * 2.1) + Math.random() * 0.05, 0.1);
+    haze.material.opacity = 0.05 * (lamp.intensity / 2.4);
+    bulb.material.color.setScalar(Math.min(1, lamp.intensity / 2.4)).multiply(BULB);
+    if (t > nextFlicker) { nextFlicker = t + rand(20, 45); flickerUntil = t + rand(0.25, 0.5); if (onFlicker && dt) onFlicker(); }
+    if (t > nextNeon) { nextNeon = t + rand(10, 25); neonOut = t + rand(0.15, 0.6); }
+    const on = t < neonOut ? Math.random() < 0.3 : 1;
+    neon.material.opacity = on ? 0.95 + Math.sin(t * 120) * 0.05 : 0.08;
+    neonGlow.intensity = on ? 0.6 : 0.02;
+    // moth: a wobbly orbit around the bulb, wings flapping
+    const bp = bulb.getWorldPosition(V()), a = t * 2.3;
+    moth.position.set(bp.x + Math.cos(a) * 0.22 + Math.sin(t * 7.1) * 0.03, bp.y - 0.05 + Math.sin(t * 3.7) * 0.08, bp.z + Math.sin(a) * 0.22 + Math.cos(t * 6.3) * 0.03);
+    moth.rotation.y = -a;
+    for (const w of wings) w.rotation.y = w.userData.s * (0.3 + Math.abs(Math.sin(t * 38)) * 1.1);
+  }
+  const BULB = new T.Color(0xffe2a8);
+
   function seatAngle(i, n) { return Math.PI / 2 + i * 2 * Math.PI / n; }
   function polar(r, ang, y) { return new T.Vector3(Math.cos(ang) * r, y, Math.sin(ang) * r); }
 
@@ -661,6 +799,7 @@ function createScene(canvas, labelLayer) {
       labelLayer.appendChild(label);
       return {group, ang, label, face: newFaceState()};
     });
+    setGlasses();
   }
 
   function seatBasis(i) {
@@ -1015,6 +1154,7 @@ function createScene(canvas, labelLayer) {
       f.hitSide = ax.dot(side) > 0 ? 1 : -1;
     }
     seats.forEach((s, j) => { if (j !== i) s.face.startle = t + 0.6 + Math.random() * 0.2; });
+    rattle_(null, 1); tipGlass(i);
     fallOn = self;
   }
 
@@ -1052,6 +1192,7 @@ function createScene(canvas, labelLayer) {
     const t = now();
     if (kind === 'talk') s.face.talkUntil = t + 0.7;
     if (GESTURE[kind]) s.face.gesture = {kind, t0: t};
+    if (kind === 'slam') rattle_(null, 0.8); else if (kind === 'knock') rattle_(pid, 0.5);
     if (kind === 'happy') s.face.happyUntil = t + 2.2;
   }
 
@@ -1158,6 +1299,7 @@ function createScene(canvas, labelLayer) {
     halo.rotation.z += dt * 1.5; halo.position.y += Math.sin(t * 3) * 0.0008;
     godT = Math.max(0, godT - dt * 0.33); if (godT === 0) halo.visible = godRay.visible = false;
     lamp.intensity = 2.4 * (0.96 + Math.random() * 0.04) * (t < flickerUntil && Math.random() < 0.4 ? 0.2 : 1);
+    stepAmbience(t, dt); room.update(t);
     // camera: eased base position + lens, then free look, then offsets (death fall, shake, fear)
     camBase.lerp(camPos, k(boardView ? 4 : 3));
     camera.position.copy(camBase);
@@ -1178,6 +1320,7 @@ function createScene(canvas, labelLayer) {
     updateLabels();
     requestAnimationFrame(frame);
   }
+  shineAll(scene); [brass, copper, glassMat, whisky, iceMat].forEach(shiny);
   root.__pokerDebug = {camera, scene, fx, dyn, seats: () => seats};
   resize(); requestAnimationFrame(frame);
 
@@ -1187,6 +1330,8 @@ function createScene(canvas, labelLayer) {
     setPicked(ids) { picked = new Set(ids); if (lastState) update(lastState, viewerSeat, lastHide); },
     setBoardView(on) { boardView = on; if (lastState) update(lastState, viewerSeat, lastHide); },
     get boardView() { return boardView; },
+    // called when the bulb stutters (index.html plays a buzz)
+    set onFlicker(fn) { onFlicker = fn; },
   };
 }
 

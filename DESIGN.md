@@ -57,7 +57,17 @@ The host picks one of three games in the room before starting (shown in the open
 ## 3. Visual direction
 
 ### 3.1 Mood
-- **Setting:** an underground bar after hours. One warm lamp over a green felt table. Everything outside the lamp cone falls into darkness and fog.
+- **Setting:** an underground bar after hours. One warm lamp over a green felt table; the rest of the room sits in dim, warm pools of light (bar strip lights, sconces, candles, the jukebox) and thins into fog (6.5–17 units).
+- **The room** (`room.js`, all primitives + canvas-drawn textures, no image files):
+  - Plank floor, a round red rug under the table, wood wainscot below a dark damask wallpaper, a dark ceiling with beams.
+  - **Bar** along the back wall: wood counter with a polished top and brass foot rail, four red leather stools, a back bar with a mirror, two shelves of bottles lit by warm strip lights (one point light), more bottles under them. The red "BAR" neon hangs above.
+  - **Jukebox** by the end of the bar: wood cabinet, arched top, glowing tubes whose colours scroll, and a small light that cycles hue.
+  - **Pool table** in the right-hand corner under its own green lamp, with balls and a cue; a cue rack on the wall behind.
+  - **Upright piano** with a bench and a candle; two **small tables** with chairs, a candle and a bottle; **barrels** and stacked **crates**.
+  - On the walls: four brass **sconces** (glowing bulb + soft halo), a WANTED poster, a painting, a chalkboard of house rules, a **clock that shows the real time**, a **dartboard** with three darts, the **door** with a green EXIT sign, and a coat rack with a hat.
+  - Static decor is merged into one mesh per material after it is built (about 40 draw calls for the whole room). Things that move (clock hands, candle flames, halos, jukebox tubes) stay separate.
+- **The table:** printed felt (fibres, a darker worn rim, two gold racetrack rings outside the cards, a faint six-chamber emblem with "BULLET POKER · HOUSE OF LIARS" around it, glass rings and cigarette burns, a fine bump map), a wood trim band, a **padded leather rail** with a stitched seam (slightly squashed torus), a wood apron, and a heavy pedestal with a brass ring and four feet. Characters rest their paws on the rail. Chairs are proper wooden chairs (seat, legs, posts, top rail, slats).
+- **Reflections:** metal and glass use a small painted panorama of the bar (lamp overhead, dark walls, a band of amber bottle light) prefiltered with PMREM as their environment map. Without one, metallic materials render nearly black. (Capturing the live scene with `fromScene` came out blown-out white, so it is painted instead.)
 - **Palette** (shared by the 3D scene and the HUD):
 
 | Token | Hex | Use |
@@ -72,7 +82,13 @@ The host picks one of three games in the room before starting (shown in the open
 | `--ok` | `#8cbc72` | Survived, winner |
 | `--muted` | `#a58f72` | Secondary text |
 
-- **Light:** one warm spotlight (≈ 2700 K, `#ffc77a`) with soft shadows, plus a very low hemisphere fill. The lamp sways a little; its brightness flickers by about 4%.
+- **Light:** one warm spotlight (≈ 2700 K, `#ffc77a`) with soft shadows, plus a very low hemisphere fill. The lamp sways a little; its brightness flickers by about 4%. Every 20–45 s the bulb stutters for a moment with a mains buzz.
+- **Ambience** (all cheap: a few particles and simple meshes):
+  - A faint additive cone of haze under the shade, swaying with the lamp and dimming when the bulb stutters, with dust motes drifting through it (a few dozen at a time).
+  - An ashtray beside the table with a cigarette left burning: the ember glows and pulses, and a thin ribbon of smoke curls up.
+  - A whisky tumbler in front of each player (glass, amber drink, an ice cube). Glasses rattle on a gunshot, a Liar slam or a knock. When a player is shot, their glass tips over toward the centre and a puddle spreads.
+  - A red "BAR" neon over the back shelf (a canvas texture, unaffected by fog) with a small red light. It cuts out for a moment every 10–25 s.
+  - A moth circling the bulb.
 - **Type:** *Playfair Display* (italic 900) for the logo and big moments ("BANG!"), *Alfa Slab One* for the showdown board, *Be Vietnam Pro* for UI text, *JetBrains Mono* for numbers and labels.
 
 ### 3.2 Characters **[Design]**
@@ -114,7 +130,7 @@ Built from primitives, chunky proportions (big head, round body), seated at the 
 | Their turn / acting | Mouth flaps for about 0.6 s, head turns to the table |
 | Gun on them | Eyes wide, brows up, mouth open, body trembles |
 | Survived (click) | Big exhale: head drops then recovers, short smile |
-| Died (bang) | Head snaps away from the gun, slumps forward onto the table, eyes become "X" |
+| Died (bang) | Head snaps away from the gun, slumps face down onto the table with the paws sprawled either side, eyes become "X" |
 | Won the hand | Smile arc + brows confident for 2 s |
 
 ### 3.3 Table objects
@@ -260,6 +276,7 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 | Hand won | Short rising Rhodes arpeggio |
 | Your turn | Soft two-tone bell (880 / 1320 Hz) |
 | UI click | Tiny tick |
+| Bulb stutter | Short 100 Hz / 50 Hz mains buzz with a few crackles |
 
 ---
 
@@ -276,7 +293,7 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 - [x] Board view toggle
 - [x] Shot cam dolly, hit-stop and slow motion on BANG (§3.4)
 - [x] Muzzle flash, sparks, gun smoke, sweat, exhale, God Save light shaft and gold dust (§3.4)
-- [ ] **[Future]** Smoke particles in the lamp cone
+- [x] Lamp haze, dust motes, cigarette smoke, drinks, neon, moth (§3.1)
 - [x] Character arms and paws: gestures, and the hand that actually holds the gun
 - [x] Toon shading and inked outlines for the characters
 - [x] Online tables: lobby list, host / join by code or invite link (see §8)
@@ -304,6 +321,7 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 - `game.js`: Bullet Poker rules and turn flow; emits `onChange(state)` and `onEvent(type, data)`. No DOM.
 - `liars.js`: Liar's Deck and Liar's Dice, same interface as `game.js` (`state.mode` tells them apart). No DOM.
 - `scene.js`: Three.js scene, characters, faces, camera modes, portrait renderer, what each effect looks like. Reads state only.
+- `room.js`: the bar room and the poker table (geometry, canvas textures, merged static decor, per-frame jukebox / candles / sconces / clock). Loaded before `scene.js`, which calls `PokerRoom.build()`.
 - `fx.js`: effects runtime used by `scene.js`: scaled time (hit-stop, slow motion), tweens with easing, and pooled particles in two `THREE.Points` clouds (additive and alpha-blended) with a 4-cell canvas sprite atlas. No game logic.
 - `dev/fxlab.html`: dev page that plays gun moments on a local table with a chosen outcome (click / bang / God Save), shooter and view, no network. `?slow=4` plays everything 4× slower; `window.__fxSlow = 0` freezes the scene for inspection.
 - `audio.js`: Web Audio synth for music and SFX.

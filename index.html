@@ -238,6 +238,7 @@ details summary{cursor:pointer;font-weight:700}
 <script src="engine.js"></script>
 <script src="game.js"></script>
 <script src="liars.js"></script>
+<script src="room.js"></script>
 <script src="fx.js"></script>
 <script src="scene.js"></script>
 <script src="audio.js"></script>
@@ -258,6 +259,7 @@ try { const m = localStorage.getItem('bp-mode'); if (NET.MODES.includes(m)) room
 
 let scene3d = null;
 try { scene3d = PokerScene.createScene(document.getElementById('view'), document.getElementById('labels')); } catch (e) { console.error(e); }
+if (scene3d) scene3d.onFlicker = () => audio.play('buzz');
 let portraits = {};
 try { portraits = PokerScene.renderPortraits(); } catch (e) { console.error(e); }
 const audio = PokerAudio.createAudio();

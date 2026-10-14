@@ -142,6 +142,8 @@ function createAudio() {
     win() { const t = now(); [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => keys(t + i * 0.09, f, 0.7, 0.16, sfxBus)); },
     yourTurn() { const t = now(); tone(t, 880, 0.35, {gain: 0.12}); tone(t + 0.12, 1320, 0.45, {gain: 0.1}); },
     ui() { tone(now(), 1500, 0.025, {gain: 0.05}); },
+    // the lamp's bulb stutters: a short mains buzz with crackle
+    buzz() { const t = now(); tone(t, 100, 0.35, {type: 'sawtooth', gain: 0.025, attack: 0.01}); tone(t, 50, 0.35, {type: 'square', gain: 0.012, attack: 0.01}); for (let i = 0; i < 5; i++) noise(t + Math.random() * 0.3, 0.012, {type: 'highpass', freq: 4000, gain: 0.08}); },
     // dice rattling in a leather cup, then landing on felt
     dice(count = 1) {
       const t = now(), shakes = 6 + Math.min(4, count) * 2;
