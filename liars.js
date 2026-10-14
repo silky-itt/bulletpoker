@@ -155,7 +155,7 @@ function createLiarsGame(mode, seats, onChange, opts = {}) {
     S.round++; S.reveal = false; S.result = null;
     for (const p of S.players) p.lastAction = '';
     if (S.mode === 'deck') dealDeck(); else rollDice();
-    emit(); await wait(1200); if (t !== token) return;
+    emit(); await wait(S.mode === 'deck' ? 1800 : 1200); // shuffle + deal / cup rattle (scene.js DEAL) if (t !== token) return;
     let i = S.players[S.starter] && S.players[S.starter].alive ? S.starter : nextAlive(S.starter < 0 ? n() - 1 : S.starter);
     let outcome = null;
     for (let guard = 0; guard < 400 && !outcome; guard++) {

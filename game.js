@@ -221,7 +221,7 @@ function createGame(seats, onChange, opts = {}) {
     S.street = 'preflop';
     log(`— Hand ${S.handNo}. Everyone antes 1 bullet. ${S.players[S.dealer].name} has the button.`);
     fx('deal', {count: alive().length * 2});
-    emit(); await wait(1000);
+    emit(); await wait(1300); // shuffle + deal animation (scene.js DEAL)
     if (!await bettingRound(nextFrom(S.dealer, p => p.inHand && p.alive), t)) return;
 
     for (const [street, k] of [['flop', 3], ['turn', 1], ['river', 1]]) {

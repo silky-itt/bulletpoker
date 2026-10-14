@@ -8,8 +8,14 @@ function createAudio() {
   let ctx = null, master, musicBus, musicFilter, sfxBus, reverb, noiseBuf;
   let musicOn = true, sfxOn = true, started = false;
   let schedTimer = null, heartTimer = null;
-  try { const s = JSON.parse(localStorage.getItem('bp-audio')); if (s) { musicOn = s.music !== false; sfxOn = s.sfx !== false; } } catch {}
-  const save = () => { try { localStorage.setItem('bp-audio', JSON.stringify({music: musicOn, sfx: sfxOn})); } catch {} };
+  // volume sliders: 0..1, applied squared so the slider feels even to the ear
+  let musicVol = 0.8, sfxVol = 0.9;
+  const vol01 = v => Math.max(0, Math.min(1, +v || 0));
+  try {
+    const s = JSON.parse(localStorage.getItem('bp-audio'));
+    if (s) { musicOn = s.music !== false; sfxOn = s.sfx !== false; if (s.mv != null) musicVol = vol01(s.mv); if (s.sv != null) sfxVol = vol01(s.sv); }
+  } catch {}
+  const sfxGain = () => sfxOn ? sfxVol * sfxVol : 0;
 
   // iOS plays Web Audio as "ambient" sound, which the silent switch mutes. Ask for "playback"
   // (Safari 17+), or else keep a silent <audio> loop playing, which switches the page to playback.
@@ -42,7 +48,7 @@ function createAudio() {
     for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
     reverb.buffer = ir;
     const revGain = ctx.createGain(); revGain.gain.value = 0.35; reverb.connect(revGain).connect(master);
-    sfxBus = ctx.createGain(); sfxBus.gain.value = sfxOn ? 1 : 0; sfxBus.connect(master); sfxBus.connect(reverb);
+    sfxBus = ctx.createGain(); sfxBus.gain.value = sfxGain(); sfxBus.connect(master); sfxBus.connect(reverb);
     musicFilter = ctx.createBiquadFilter(); musicFilter.type = 'lowpass'; musicFilter.frequency.value = 9000;
     musicBus = ctx.createGain(); musicBus.gain.value = musicOn ? 0.22 : 0;
     musicFilter.connect(musicBus).connect(master);
@@ -79,7 +85,20 @@ function createAudio() {
   /* ---------- sound effects ---------- */
   const SFX = {
     flick(t = now()) { noise(t, 0.07, {freq: 2500, to: 5000, q: 0.8, gain: 0.35}); },
-    deal(count = 2) { const t = now(); for (let i = 0; i < Math.min(count, 8); i++) SFX.flick(t + i * 0.09); },
+    // o: a card count, or {count, delay, gap}: a riffle during `delay`, then one flick per card
+    deal(o = 2) {
+      const {count = 2, delay = 0, gap = 0.09} = typeof o === 'object' ? o : {count: o};
+      const t = now();
+      if (delay > 0) SFX.riffle(t, delay);
+      for (let i = 0; i < Math.min(count, 24); i++) SFX.flick(t + delay + i * gap);
+    },
+    riffle(t = now(), dur = 0.45) {
+      const n = 22;
+      for (let i = 0; i < n; i++) noise(t + dur * 0.8 * Math.pow(i / n, 0.8), 0.012, {type: 'bandpass', freq: 3200 + Math.random() * 1500, q: 2, gain: 0.16});
+      noise(t + dur * 0.82, 0.08, {type: 'bandpass', freq: 1400, q: 1, gain: 0.2}); // the halves bridge back together
+    },
+    // cards slapped down on the felt: flick when thrown, thump when they land
+    slap(o = {}) { const {n = 1, land = 0.34} = o, t = now(); for (let i = 0; i < n; i++) SFX.flick(t + i * 0.04); tone(t + land, 120, 0.09, {to: 60, gain: 0.45}); noise(t + land, 0.06, {type: 'lowpass', freq: 1500, gain: 0.3}); },
     board(count = 1) { const t = now(); for (let i = 0; i < count; i++) { SFX.flick(t + i * 0.16); tone(t + i * 0.16 + 0.05, 180, 0.05, {gain: 0.08, to: 90}); } },
     knock(t = now()) { tone(t, 160, 0.07, {to: 70, gain: 0.5}); noise(t, 0.03, {type: 'lowpass', freq: 900, gain: 0.25}); },
     check() { const t = now(); SFX.knock(t); SFX.knock(t + 0.13); },
@@ -218,7 +237,7 @@ function createAudio() {
   const TRACK_GAIN = {stakes: 0.24, jazz: 0.22};
   let track = 'stakes', intensity = 0, stepIdx = 0, nextStep = 0, ducked = false;
   try { const s = JSON.parse(localStorage.getItem('bp-audio')); if (s && TRACKS[s.track]) track = s.track; } catch {}
-  const musicGain = () => musicOn ? TRACK_GAIN[track] * (ducked ? 0.45 : 1) : 0;
+  const musicGain = () => musicOn ? TRACK_GAIN[track] * (ducked ? 0.45 : 1) * musicVol * musicVol : 0;
 
   function scheduler() {
     if (!ctx || !musicOn) { if (ctx) nextStep = ctx.currentTime + 0.05; return; }
@@ -247,7 +266,7 @@ function createAudio() {
       beat(); heartTimer = setInterval(beat, 700);
     }
   }
-  const save2 = () => { try { localStorage.setItem('bp-audio', JSON.stringify({music: musicOn, sfx: sfxOn, track})); } catch {} };
+  const save2 = () => { try { localStorage.setItem('bp-audio', JSON.stringify({music: musicOn, sfx: sfxOn, track, mv: musicVol, sv: sfxVol})); } catch {} };
 
   return {
     // Call from a user gesture. Also revives the context after a phone call or app switch
@@ -276,7 +295,10 @@ function createAudio() {
       stepIdx = 0; if (ctx) { nextStep = ctx.currentTime + 0.1; musicBus.gain.setTargetAtTime(musicGain(), now(), 0.2); }
       save2();
     },
-    setSfx(v) { sfxOn = v; save2(); if (ctx) sfxBus.gain.setTargetAtTime(v ? 1 : 0, now(), 0.05); if (!v) tension(false); },
+    setSfx(v) { sfxOn = v; save2(); if (ctx) sfxBus.gain.setTargetAtTime(sfxGain(), now(), 0.05); if (!v) tension(false); },
+    get musicVolume() { return musicVol; }, get sfxVolume() { return sfxVol; },
+    setMusicVolume(v) { musicVol = vol01(v); save2(); if (ctx) musicBus.gain.setTargetAtTime(musicGain(), now(), 0.05); },
+    setSfxVolume(v) { sfxVol = vol01(v); save2(); if (ctx) sfxBus.gain.setTargetAtTime(sfxGain(), now(), 0.05); },
   };
 }
 

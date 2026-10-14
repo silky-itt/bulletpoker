@@ -185,6 +185,12 @@ details summary{cursor:pointer;font-weight:700}
 .vignette.on{opacity:1;animation:hb .7s ease-out infinite}
 .vignette.self{background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 28%,rgba(30,4,2,.6) 62%,rgba(10,1,0,.95) 100%)}
 @keyframes hb{0%{transform:scale(1)}12%{transform:scale(.965)}30%{transform:scale(1)}44%{transform:scale(.98)}62%{transform:scale(1)}}
+/* volume panel: lives outside #hud so re-rendering the HUD doesn't interrupt a drag */
+.volpanel{position:fixed;top:58px;right:12px;z-index:30;display:grid;gap:12px;width:min(260px,calc(100vw - 32px));padding:14px 16px;background:var(--wood);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.6)}
+.volpanel[hidden]{display:none}
+.volpanel label{display:grid;grid-template-columns:62px minmax(0,1fr) 34px;align-items:center;gap:10px;font-size:13px}
+.volpanel output{font:500 12px var(--f-mono);color:var(--muted);text-align:right}
+.volpanel input[type=range]{width:100%;accent-color:var(--lamp);min-height:28px}
 .redflash{position:fixed;inset:0;background:var(--blood);opacity:0;pointer-events:none;z-index:9}
 .redflash.on{animation:rf 1.2s ease-out}
 @keyframes rf{0%{opacity:.75}100%{opacity:0}}
@@ -221,6 +227,10 @@ details summary{cursor:pointer;font-weight:700}
 <div class="redflash" id="redflash"></div>
 <div class="goldflash" id="goldflash"></div>
 <div id="hud"></div>
+<div class="volpanel" id="volpanel" hidden>
+  <label for="volMusic"><span>Music</span><input type="range" id="volMusic" min="0" max="100" step="1"><output id="volMusicOut"></output></label>
+  <label for="volSfx"><span>Effects</span><input type="range" id="volSfx" min="0" max="100" step="1"><output id="volSfxOut"></output></label>
+</div>
 <div id="ov"></div>
 
 <script src="assets/vendor/three.min.js"></script>
@@ -414,7 +424,7 @@ function leaveSession(){
   if (location.hash) history.replaceState(null, '', location.pathname);
   showLobby();
 }
-function resetTable(){ audio.tension(false); vignette(null); boardOpen = false; if (scene3d) { scene3d.setBoardView(false); scene3d.setup([]); } $hud.innerHTML = ''; }
+function resetTable(){ audio.tension(false); vignette(null); volOpen = false; $vol.hidden = true; boardOpen = false; if (scene3d) { scene3d.setBoardView(false); scene3d.setup([]); } $hud.innerHTML = ''; }
 
 /* ---------- screen 3: the room (waiting to start) ---------- */
 function renderRoom(){
@@ -499,7 +509,7 @@ const ctl = {
 function onEvent(type, d, S){
   const talk = () => scene3d && d.pid != null && scene3d.react(d.pid, 'talk');
   switch (type) {
-    case 'deal': audio.play('deal', d.count); break;
+    case 'deal': audio.play('deal', {count: d.count, delay: PokerScene.DEAL.shuffle, gap: PokerScene.DEAL.gap[S.mode] || PokerScene.DEAL.gap.poker}); break;
     case 'board': audio.play('board', d.count); break;
     case 'check': audio.play('check'); talk(); break;
     case 'bet': audio.play('bet', d.added); talk(); break;
@@ -517,12 +527,28 @@ function onEvent(type, d, S){
     case 'yourTurn': if (d.pid === viewer) audio.play('yourTurn'); break;
     case 'gameOver': audio.play(d.winner === viewer ? 'win' : 'lose'); break;
     case 'roll': audio.play('dice', d.count); break;
-    case 'play': audio.play('board', d.n); talk(); break;
+    case 'play': audio.play('slap', {n: d.n}); talk(); break;
     case 'bid': audio.play('bet', 1); talk(); break;
     case 'liar': audio.play('liar'); talk(); if (scene3d && S.result) scene3d.react(S.result.accused, 'talk'); break;
     case 'reveal': audio.play(S.mode === 'dice' ? 'dice' : 'switch', 2); break;
   }
 }
+/* ---------- volume panel ---------- */
+let volOpen = false;
+const $vol = document.getElementById('volpanel');
+function syncVolume(){
+  for (const [id, v] of [['volMusic', audio.musicVolume], ['volSfx', audio.sfxVolume]]) {
+    const pct = Math.round(v * 100);
+    document.getElementById(id).value = pct;
+    document.getElementById(id + 'Out').textContent = pct;
+  }
+}
+function toggleVolume(open = !volOpen){ volOpen = open; $vol.hidden = !open; if (open) syncVolume(); render(); }
+document.getElementById('volMusic').addEventListener('input', e => { audio.setMusicVolume(e.target.value / 100); syncVolume(); });
+document.getElementById('volSfx').addEventListener('input', e => { audio.setSfxVolume(e.target.value / 100); syncVolume(); });
+// a tick on release so you hear the new effects level
+document.getElementById('volSfx').addEventListener('change', () => audio.play('clink'));
+document.addEventListener('pointerdown', e => { if (volOpen && !$vol.contains(e.target) && !e.target.closest('#tVol')) toggleVolume(false); });
 function flashGold(){ const f = document.getElementById('goldflash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
 function vignette(pid){ const v = document.getElementById('vignette'); v.classList.toggle('on', pid != null); v.classList.toggle('self', pid != null && pid === viewer); }
 function flashRed(){ const f = document.getElementById('redflash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
@@ -735,7 +761,7 @@ function render(){
     <div class="chip"><div class="brand">${MODE_INFO[mode].name}</div><div class="label">${H.label}</div></div>
     <div class="row">
       <button class="btn ghost small ${audio.music ? 'on' : ''}" id="tMusic" title="Switch track">♪ ${audio.musicLabel}</button>
-      <button class="btn ghost small ${audio.sfx ? 'on' : ''}" id="tSfx" aria-pressed="${audio.sfx}">Sound</button>
+      <button class="btn ghost small ${volOpen ? 'on' : ''}" id="tVol" aria-expanded="${volOpen}" aria-controls="volpanel">Volume</button>
       ${mode === 'poker' ? `<button class="btn ghost small ${boardOpen ? 'on' : ''}" id="tBoard" aria-pressed="${boardOpen}">Board<kbd>B</kbd></button>` : ''}
       <button class="btn ghost small ${logOpen ? 'on' : ''}" id="tLog">Log</button>
       <button class="btn ghost small" id="quit">Leave</button>
@@ -773,7 +799,7 @@ function render(){
   on('tLog', () => { logOpen = !logOpen; render(); });
   on('tBoard', toggleBoard);
   on('tMusic', () => { audio.unlock(); audio.cycleMusic(); render(); });
-  on('tSfx', () => { audio.unlock(); audio.setSfx(!audio.sfx); render(); });
+  on('tVol', () => { audio.unlock(); toggleVolume(); });
   $hud.querySelectorAll('[data-card]').forEach(el => el.onclick = () => { audio.play('ui'); togglePick(+el.dataset.card); });
   $hud.querySelectorAll('[data-face]').forEach(el => el.onclick = () => { audio.play('ui'); stepBid(0, +el.dataset.face); });
   $hud.querySelectorAll('[data-offer]').forEach(el => el.onclick = () => { sw.pick = +el.dataset.offer; audio.play('ui'); render(); });
@@ -787,6 +813,7 @@ function toggleBoard(){ boardOpen = !boardOpen; if (scene3d) scene3d.setBoardVie
 
 /* ---------- keyboard ---------- */
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && volOpen) { toggleVolume(false); document.getElementById('tVol')?.focus(); return; }
   const tg = e.target;
   const S = curState();
   if (!S || !session.inGame || (tg && tg.matches && tg.matches('input,select,textarea')) || e.metaKey || e.ctrlKey) return;

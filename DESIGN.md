@@ -103,8 +103,22 @@ Low-poly, built from primitives, chunky proportions (big head, small body), seat
 | Won the hand | Smile arc + brows confident for 2 s |
 
 ### 3.3 Table objects
-- **Cards:** 0.28 × 0.40 units, cream face with large rank and suit, red-black diagonal-stripe back. They slide from the deck when dealt and flip at showdown.
-- **Bullets:** brass case + copper tip, standing upright in a 3-per-row cluster in front of each player. One clink per bullet added.
+- **Cards:** 0.28 × 0.40 units, cream face with large rank and suit, red-black diagonal-stripe back.
+- **Bullets:** brass case + copper tip, standing upright in a 3-per-row cluster in front of each player. Each one added is tossed in from the player's side and bounces into place, 90 ms apart, in step with its clink.
+- **Dice and cups:** ivory dice (ones in red) under a leather cup with a brass band.
+- **Motion** (`want()` in `scene.js`): objects ease toward their spot. A new object, or one whose spot jumps more than 0.15 units or turns more than 45°, *flies* instead: along an arc, optionally spinning or tumbling, landing with a slide, a bounce or a slam. Small moves (lifting a picked card) still ease.
+
+| Moment | Motion |
+|---|---|
+| New hand / round (poker, Liar's Deck) | The deck **riffles** (two halves spring apart and interleave, 0.45 s), then cards leave it one at a time in seat order starting left of the dealer, 0.10 s apart (0.06 s in Liar's Deck), each on a spinning arc that flips your own cards face up in the air. The game waits 1.3 s (1.8 s in Liar's Deck) before the first turn so the deal can finish. |
+| Hand ends | Every card on the table is gathered back to the deck. |
+| Flop / turn / river | Board cards leave the deck 0.16 s apart (like the `board` sound) and flip in the air. |
+| Fold | Cards are tossed forward with a spin. |
+| Showdown | Players turn their cards over one after another (0.22 s apart, a little lift). The winner's cards glow gold with a slow pulse, and a few gold sparks rise off them. |
+| Liar's Deck play | The cards are thrown and **slammed** face down in front of the player (0.34 s, accelerating), with a puff of dust and a thump. |
+| Liar call | The last play flips face up one card at a time (0.28 s apart). |
+| Liar's Dice roll | Every cup rattles in place (hops and tilts) for as long as the dice sound does, then slams down with a squash and a puff of dust; your own dice tumble out. |
+| Liar's Dice reveal | Cups lift off one after another. |
 - **Revolver:** rests in the middle of the table. It has a real 6-chamber cylinder (holes visible on the back face) on a crane that swings out for loading, a hammer and a trigger that move, a top rib, front sight and ejector rod. The steel is only half metallic: there is no environment map, so a fully metallic gun renders black.
 - **Reload sequence** (every shot):
   1. **Open (0.7 s):** the gun floats up in front of the shooter, rear of the cylinder turned toward the viewer, barrel tilted up. The cylinder swings out (with a little overshoot).
@@ -145,7 +159,7 @@ Juice is seasoning: everything here exists to make the gun moment land. Effects 
 ### 5.1 Layout (desktop, also stacks on phones)
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ [Logo · Hand 3 · Flop · Bet 2]        [♪ Music][🔊 SFX][Board][Log][Leave] │
+│ [Logo · Hand 3 · Flop · Bet 2]       [♪ Music][Volume][Board][Log][Leave] │
 │                                                              │
 │            name tags float above each character              │
 │               (name · ●●○○○○ bullets · last action)            │
@@ -193,6 +207,8 @@ All sound is synthesized at runtime (Web Audio API). No files, so there are no l
 ### 6.1 Music **[Design]**
 Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Jazz → Off*, and the choice is remembered (localStorage).
 
+**Volume:** the **Volume** button opens a small panel with two sliders, *Music* and *Effects* (0–100, remembered in localStorage). Levels are applied squared so the slider feels even to the ear. The panel sits outside the HUD so redrawing the HUD never interrupts a drag; it closes on Escape or a tap outside.
+
 **Track 1: High Stakes** (default). Tense, driving, spaghetti-western-meets-thriller.
 - D minor, 112 BPM, 16th-note grid. Progression `Dm – B♭ – Gm – A` (i – VI – iv – V, with the V pulling back to the tonic).
 - **Adaptive intensity**, recomputed on every state change:
@@ -212,7 +228,9 @@ Two tracks. The **Music** button (or key **M**) cycles *High Stakes → Smoky Ja
 
 | Event | Sound recipe |
 |---|---|
-| Card dealt / board card | Short band-passed noise "flick" with an upward sweep |
+| Shuffle | Riffle: ~22 tiny band-passed ticks speeding up over 0.36 s, then a soft swish as the halves bridge |
+| Card dealt / board card | Short band-passed noise "flick" with an upward sweep, one per card on the deal's timing (after the riffle) |
+| Liar's Deck play | A flick per card when thrown, then a low thump when they slam down (0.34 s) |
 | Check | Two knuckle knocks on wood (low sine thumps + noise) |
 | Call / Raise (per bullet) | Brass "clink": two high sine partials (≈2.8 k / 4.2 kHz) with fast decay, staggered 90 ms per bullet |
 | All-in | Six rapid clinks, then a low "doom" hit |

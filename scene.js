@@ -16,6 +16,8 @@ const CHARACTERS = {
          body: 0x2f2a28, head: 0x3a3330, snout: 0x8a7468, ear: 'horn', snoutShape: 'box', nose: 'ring', acc: 'ring', accColor: 0xd4a73c},
 };
 const TABLE_R = 1.9, SEAT_R = 2.75, CARD_R = 1.35, EYE_H = 1.62, TOP = 0.955;
+// Deal timing in seconds, shared with the deal sound (index.html): riffle, then one card per gap.
+const DEAL = {shuffle: 0.45, gap: {poker: 0.1, deck: 0.06}};
 
 const std = (c, r = 0.8, m = 0) => new T.MeshStandardMaterial({color: c, roughness: r, metalness: m});
 const wood = (c, r = 0.75) => std(c, r, 0.05);
@@ -357,16 +359,57 @@ function createScene(canvas, labelLayer) {
   // dynamic objects eased toward targets
   const dyn = new Map();
   const DECK_POS = new T.Vector3(0.9, TOP + 0.02, 0.2);
+  // Objects ease toward their target every frame. A new object (opt.from) or a big jump in its
+  // target (> 0.15 units or > 45°) is flown instead, along an arc: opt.enter / opt.move style it.
+  // Flight style: {delay, dur, arc, spin (turns about the up axis), tumble (turns about a random
+  // axis), land: 'slide' | 'bounce' | 'slam', onLand}.
   function want(key, factory, pos, quat, opt = {}) {
     let d = dyn.get(key);
+    const animate = !root.__instant;
     if (!d) {
       const obj = factory();
-      obj.position.copy(opt.from || pos); obj.quaternion.copy(quat);
+      obj.position.copy(opt.from || pos); obj.quaternion.copy(opt.from && opt.fromQ || quat);
       scene.add(obj);
       d = {obj}; dyn.set(key, d);
-    }
+      if (opt.from && animate) fly(d, opt.enter);
+    } else if (animate && d.pos && (d.pos.distanceToSquared(pos) > 0.0225 || d.quat.angleTo(quat) > 0.8)) fly(d, opt.move);
     d.pos = pos; d.quat = quat; d.seen = true; d.speed = opt.speed || 9;
     return d.obj;
+  }
+  function fly(d, st = {}) {
+    d.flight = {from: d.obj.position.clone(), fromQ: d.obj.quaternion.clone(), t0: now() + (st.delay || 0), dur: st.dur, arc: st.arc,
+      spin: st.spin || 0, tumble: st.tumble || 0, axis: randDir(), land: st.land || 'slide', onLand: st.onLand, hidden: !!st.hidden};
+    if (st.hidden) d.obj.visible = false;
+  }
+  const UP_Q = new T.Quaternion(), SPIN_Q = new T.Quaternion();
+  // advance one flight; returns true when it has landed
+  function stepFlight(d, t) {
+    const f = d.flight, o = d.obj;
+    if (t < f.t0) return false; // waiting its turn (e.g. still on the deck)
+    o.visible = true;
+    const dist = f.from.distanceTo(d.pos);
+    const dur = f.dur || 0.3 + dist * 0.12, arc = f.arc != null ? f.arc : Math.min(0.35, 0.04 + dist * 0.18);
+    const p = Math.min(1, (t - f.t0) / dur);
+    const e = f.land === 'slam' ? p * p : fx.ease.out(p);
+    o.position.lerpVectors(f.from, d.pos, e);
+    o.position.y += Math.sin(Math.PI * Math.min(1, f.land === 'slam' ? p * 1.15 : p)) * arc;
+    if (f.land === 'bounce') o.position.y = f.from.y + (d.pos.y - f.from.y) * fx.ease.bounce(p) + Math.sin(Math.PI * p) * arc * (1 - p);
+    const r = fx.ease.inOut(Math.min(1, p * 1.25));
+    o.quaternion.copy(f.fromQ).slerp(d.quat, r);
+    if (f.spin) o.quaternion.premultiply(UP_Q.setFromAxisAngle(Y, f.spin * Math.PI * 2 * (1 - r)));
+    if (f.tumble) o.quaternion.premultiply(SPIN_Q.setFromAxisAngle(f.axis, f.tumble * Math.PI * 2 * (1 - r)));
+    if (p < 1) return false;
+    o.position.copy(d.pos); o.quaternion.copy(d.quat);
+    d.flight = null;
+    if (f.onLand) f.onLand(o);
+    return true;
+  }
+  // cards that left the state are gathered back to the deck, then removed
+  const leaving = new Set();
+  function gather(d, i) {
+    d.pos = DECK_POS.clone().setY(TOP + 0.05); d.quat = flatQ(0.3, false);
+    fly(d, {delay: i * 0.02, dur: 0.38, arc: 0.12});
+    leaving.add(d);
   }
 
   let seats = [];
@@ -423,7 +466,8 @@ function createScene(canvas, labelLayer) {
   function setup(ps) {
     for (const s of seats) scene.remove(s.group);
     for (const d of dyn.values()) scene.remove(d.obj);
-    dyn.clear();
+    for (const d of leaving) scene.remove(d.obj);
+    dyn.clear(); leaving.clear(); lastDealKey = null; wasShowdown = false; cupRattle = null;
     labelLayer.innerHTML = '';
     snap = true; boardView = false; lastState = null; // the old game's state doesn't fit the new seats
     seats = ps.map((p, i) => {
@@ -447,6 +491,87 @@ function createScene(canvas, labelLayer) {
   const headPos = i => seats[i].group.userData.head.getWorldPosition(new T.Vector3());
 
   /* ----- Liar's Deck: hands, the face-down pile, the last play (revealed on a Liar call) ----- */
+  /* ----- dealing: shuffle, then cards leave the deck in seat order (DEAL keeps audio in step) ----- */
+  const DECK_Q = flatQ(0.3, false), SLAM = 0.34;
+  let lastDealKey = null, dealStart = 0, cupRattle = null, wasShowdown = false, revealCount = 0, revealRanks = new Map();
+  function makeDeck() { const g = new T.Group(); for (let i = 0; i < 6; i++) { const c = makeCard(); c.position.y = i * 0.006; g.add(c); } return g; }
+  const untilDeal = () => Math.max(0, dealStart - now());
+  // dice: the cup rattles as long as the 'dice' sound does, then slams
+  const rattle = S => (6 + Math.min(4, S.players.filter(p => p.alive).length) * 2) * 0.045 + 0.08;
+  function newDeal(S) {
+    if (S.mode === 'dice') {
+      // cups pick this up in diceSeat (on the first round they don't exist yet)
+      dealStart = now(); cupRattle = {round: S.round, t0: now(), dur: rattle(S)};
+      return;
+    }
+    dealStart = now() + DEAL.shuffle;
+    const deck = dyn.get('deck');
+    if (deck && !root.__instant) riffle(deck.obj);
+  }
+  // riffle: the deck splits in two halves that spring apart and interleave back
+  function riffle(g) {
+    tw(DEAL.shuffle - 0.05, (e, p) => {
+      const split = Math.sin(Math.PI * Math.min(1, p / 0.8));
+      g.children.forEach((c, j) => {
+        const half = j % 2 ? 1 : -1;
+        c.position.x = half * 0.17 * split;
+        c.position.y = j * 0.006 + (half > 0 ? 0.03 : 0) * split + (p > 0.8 ? Math.sin(Math.PI * (p - 0.8) / 0.2) * 0.01 : 0);
+        c.rotation.y = half * 0.18 * split;
+        c.rotation.z = -half * 0.12 * split;
+      });
+    }, {ease: fx.ease.linear});
+  }
+  // seats in dealing order: left of the dealer first, only those holding cards / dice
+  function dealSeats(S) {
+    const n = S.players.length, d = S.dealer != null && S.dealer >= 0 ? S.dealer : (S.starter != null ? S.starter - 1 : -1), out = [];
+    for (let k = 1; k <= n; k++) { const i = (((d + k) % n) + n) % n, p = S.players[i]; if ((p.hole && p.hole.length) || (p.hand && p.hand.length) || (p.dice && p.dice.length)) out.push(i); }
+    return out;
+  }
+  function dealFlight(S, i, k) {
+    const order = dealSeats(S), r = Math.max(0, order.indexOf(i));
+    const gap = DEAL.gap[S.mode] || DEAL.gap.poker;
+    return {delay: untilDeal() + (k * order.length + r) * gap, dur: 0.42, arc: 0.18, spin: 1};
+  }
+  // showdown / Liar reveal: players turn their cards (or lift cups) one after another
+  function revealOrder(S) {
+    revealRanks = new Map();
+    dealSeats(S).forEach(i => { const p = S.players[i]; if (p.alive && !p.folded) revealRanks.set(i, revealRanks.size); });
+    revealCount = revealRanks.size;
+  }
+  const revealRank = (S, i) => revealRanks.get(i) || 0;
+  // a puff of dust off the felt
+  function dust(pos, n, r) {
+    fx.burst(n, (j, m) => {
+      const a = j / m * Math.PI * 2 + Math.random() * 0.5, d = V(Math.cos(a), 0, Math.sin(a));
+      return {pos: pos.clone().addScaledVector(d, r * 0.5).setY(TOP + 0.02), vel: d.multiplyScalar(rand(0.25, 0.5)).add(V(0, rand(0.05, 0.15), 0)),
+        life: rand(0.5, 0.8), size: [0.03, rand(0.08, 0.13)], color: 0x9c8a6a, alpha: 0.35, cell: 'smoke', drag: 4, add: false, fadeIn: 0.05};
+    });
+  }
+  function winnerSparks() {
+    for (const d of dyn.values()) if (d.glow) fx.burst(10, () => ({pos: d.obj.position.clone().add(V(rand(-0.12, 0.12), 0.03, rand(-0.18, 0.18))),
+      vel: V(rand(-0.15, 0.15), rand(0.4, 0.8), rand(-0.15, 0.15)), life: rand(0.6, 1.1), size: [rand(0.025, 0.04), 0.01], color: 0xffe08a, cell: 'spark', grav: 0.6, drag: 1.5}));
+  }
+  const GOLD = new T.Color(0xffc860), WHITE = new T.Color(0xffffff);
+  function cardGlow(d, t) {
+    const m = d.obj.userData.face, on = !!d.glow;
+    if (!on && !d.glowing) return;
+    d.glowing = on || m.emissive.r + m.emissive.g + m.emissive.b < 2.99; // keep easing back to white
+    m.emissive.lerp(on ? GOLD : WHITE, 0.15);
+    m.emissiveIntensity = on ? 0.3 + 0.25 * (0.5 + 0.5 * Math.sin(t * 5)) : 0.22;
+  }
+  // cup: rattle in place (hops and tilts), then slam down with a squash and a puff of dust
+  function cupShake(d, t) {
+    const sh = d.shake, p = (t - sh.t0) / sh.dur, o = d.obj;
+    if (p >= 1) {
+      d.shake = null; o.quaternion.copy(d.quat);
+      dust(d.pos, 8, 0.38);
+      tw(0.18, q => { o.scale.set(1 + 0.12 * (1 - q), 1 - 0.2 * (1 - q), 1 + 0.12 * (1 - q)); }, {ease: fx.ease.out});
+      return;
+    }
+    o.position.copy(d.pos); o.position.y += Math.abs(Math.sin(t * 34 + sh.t0)) * 0.035;
+    o.quaternion.copy(d.quat).multiply(SPIN_Q.setFromEuler(new T.Euler(Math.sin(t * 29) * 0.22, 0, Math.cos(t * 23) * 0.22)));
+  }
+
   const deckKey = (S, c) => `L${S.round}-${c.id}`;
   function deckSeat(S, p, i, viewer, out, side, yaw) {
     const n = p.hand.length;
@@ -460,7 +585,7 @@ function createScene(canvas, labelLayer) {
         pos = out.clone().multiplyScalar(CARD_R).add(side.clone().multiplyScalar((k - (n - 1) / 2) * 0.2)).setY(TOP + 0.004 + k * 0.004);
         quat = flatQ(yaw + Math.PI, false);
       }
-      setFace(want(deckKey(S, c), makeCard, pos, quat, {from: DECK_POS}), c);
+      setFace(want(deckKey(S, c), makeCard, pos, quat, {from: DECK_POS, fromQ: DECK_Q, enter: dealFlight(S, i, k)}), c);
     });
   }
   function deckCenter(S, viewer) {
@@ -473,7 +598,8 @@ function createScene(canvas, labelLayer) {
       const face = viewer != null ? -seatBasis(viewer).ang - Math.PI / 2 + Math.PI : 0;
       S.last.cards.forEach((c, k) => {
         const pos = out.clone().multiplyScalar(0.5).add(side.clone().multiplyScalar((k - (S.last.cards.length - 1) / 2) * 0.3)).setY(TOP + 0.08 + k * 0.004);
-        setFace(want(deckKey(S, c), makeCard, pos, flatQ(S.reveal ? face : -ang - Math.PI / 2, S.reveal)), S.reveal ? c : {hidden: true});
+        const move = S.reveal ? {arc: 0.25, dur: 0.55, delay: 0.1 + k * 0.28} : {arc: 0.28, dur: SLAM, land: 'slam', onLand: o => dust(o.position, 7, 0.14)};
+        setFace(want(deckKey(S, c), makeCard, pos, flatQ(S.reveal ? face : -ang - Math.PI / 2, S.reveal), {move}), S.reveal ? c : {hidden: true});
       });
     }
   }
@@ -485,11 +611,14 @@ function createScene(canvas, labelLayer) {
     p.dice.forEach((v, k) => {
       const [sx, ox] = DICE_SPOTS[k];
       const pos = centre.clone().add(side.clone().multiplyScalar(sx)).add(out.clone().multiplyScalar(ox)).setY(TOP + DIE / 2);
-      want(`D${S.round}-${i}-${k}`, makeDie, pos, dieQ(v || 1, yaw + k * 0.4), {from: centre.clone().setY(TOP + 0.5), speed: 7});
+      want(`D${S.round}-${i}-${k}`, makeDie, pos, dieQ(v || 1, yaw + k * 0.4), {from: centre.clone().setY(TOP + 0.14), speed: 7,
+        enter: {delay: untilDeal() + rattle(S) - 0.1 + k * 0.03, dur: 0.42, arc: 0.06, tumble: 1 + Math.random(), land: 'bounce', hidden: true}});
     });
     const covered = i !== viewer && !S.reveal && p.alive;
     const cupPos = covered ? centre.clone().setY(TOP + 0.11) : centre.clone().add(side.clone().multiplyScalar(-0.38)).add(out.clone().multiplyScalar(0.12)).setY(TOP + 0.11);
-    want(`cup-${i}`, makeCup, cupPos, new T.Quaternion(), {from: centre.clone().setY(TOP + 0.11), speed: 6});
+    want(`cup-${i}`, makeCup, cupPos, new T.Quaternion(), {from: centre.clone().setY(TOP + 0.11), speed: 6, move: {arc: 0.32, dur: 0.55, delay: revealRank(S, i) * 0.12}});
+    const cup = dyn.get(`cup-${i}`);
+    if (cupRattle && cupRattle.round === S.round && cup.rattled !== S.round && p.alive) { cup.rattled = S.round; cup.flight = null; cup.shake = {t0: cupRattle.t0, dur: cupRattle.dur}; }
   }
 
   function update(S, viewer, hideViewerCards) {
@@ -503,6 +632,12 @@ function createScene(canvas, labelLayer) {
       else { camPos = out.clone().multiplyScalar(SEAT_R + 0.2).setY(EYE_H + 0.05); camLook = out.clone().multiplyScalar(-0.6).setY(TOP); }
     } else if (boardView) { camPos = new T.Vector3(0, 2.75, 0.75); camLook = new T.Vector3(0, TOP, 0); }
     else { camPos = new T.Vector3(0, 4.4, 3.6); camLook = new T.Vector3(0, TOP, 0); }
+
+    if (S.mode !== 'dice') want('deck', makeDeck, DECK_POS.clone(), DECK_Q);
+    // a new hand or round: shuffle, then deal in seat order starting left of the dealer
+    const dealKey = (S.mode || 'poker') + (S.mode === 'deck' || S.mode === 'dice' ? S.round : S.handNo);
+    if (dealKey !== lastDealKey) { lastDealKey = dealKey; newDeal(S); }
+    revealCount = 0; revealOrder(S);
 
     S.players.forEach((p, i) => {
       const seat = seats[i]; if (!seat) return;
@@ -528,24 +663,34 @@ function createScene(canvas, labelLayer) {
         }
         if (p.folded) { pos = out.clone().multiplyScalar(CARD_R - 0.25).add(side.clone().multiplyScalar((k - 0.5) * 0.2)).setY(TOP + 0.004 + k * 0.004); quat = flatQ(yaw + 0.4, false); }
         // keyed by hand + seat + slot so hidden cards (online) keep their mesh when revealed
-        setFace(want(`h${S.handNo}-${i}-${k}`, makeCard, pos, quat, {from: DECK_POS}), c);
+        const move = p.folded ? {arc: 0.3, dur: 0.45, spin: 0.6} : {arc: 0.16, dur: 0.5, delay: revealRank(S, i) * 0.22};
+        setFace(want(`h${S.handNo}-${i}-${k}`, makeCard, pos, quat, {from: DECK_POS, fromQ: DECK_Q, enter: dealFlight(S, i, k), move}), c);
+        dyn.get(`h${S.handNo}-${i}-${k}`).glow = !!(S.showdown && S.winners && S.winners.includes(i));
       });
 
       const inGun = S.gun && S.gun.pid === i ? (S.gun.state === 'load' ? S.gun.loaded : S.gun.bullets) : 0;
+      let added = 0;
       for (let b = inGun; b < p.bet; b++) {
         const pos = out.clone().multiplyScalar(CARD_R - 0.42).add(side.clone().multiplyScalar(0.36 + (b % 3) * 0.07)).setY(TOP);
         pos.add(out.clone().multiplyScalar(-Math.floor(b / 3) * 0.07));
-        want(`b${i}-${b}`, makeBullet, pos, new T.Quaternion(), {from: new T.Vector3(0, TOP + 0.6, 0)});
+        const from = out.clone().multiplyScalar(CARD_R + 0.05).add(side.clone().multiplyScalar(0.4)).setY(TOP + 0.3);
+        const delay = dyn.has(`b${i}-${b}`) ? 0 : added++ * 0.09; // in step with the clinks in audio.js
+        want(`b${i}-${b}`, makeBullet, pos, new T.Quaternion(), {from, enter: {delay, dur: 0.42, arc: 0.1, land: 'bounce'}});
       }
     });
 
     if (S.mode === 'deck') deckCenter(S, viewer);
-    if (!S.mode || S.mode === 'poker') S.board.forEach((c, k) => {
-      const pos = new T.Vector3((k - 2) * 0.33, TOP + 0.004, 0);
-      const quat = viewer != null ? flatQ(-seatBasis(viewer).ang - Math.PI / 2 + Math.PI, true) : flatQ(0, true);
-      setFace(want('c' + c.id, makeCard, pos, quat, {from: DECK_POS}), c);
-    });
-    if (S.mode !== 'dice') want('deck', () => { const g = new T.Group(); for (let i = 0; i < 6; i++) { const c = makeCard(); c.position.y = i * 0.006; g.add(c); } return g; }, DECK_POS.clone(), flatQ(0.3, false));
+    if (!S.mode || S.mode === 'poker') {
+      // flop cards leave the deck one after another (0.16 s apart, like the 'board' sound) and flip in the air
+      const known = S.board.filter(c => dyn.has('c' + c.id)).length;
+      S.board.forEach((c, k) => {
+        const pos = new T.Vector3((k - 2) * 0.33, TOP + 0.004, 0);
+        const quat = viewer != null ? flatQ(-seatBasis(viewer).ang - Math.PI / 2 + Math.PI, true) : flatQ(0, true);
+        setFace(want('c' + c.id, makeCard, pos, quat, {from: DECK_POS, fromQ: DECK_Q, enter: {delay: Math.max(0, k - known) * 0.16, dur: 0.5, arc: 0.3}}), c);
+      });
+    }
+    if (S.showdown && S.winners && !wasShowdown) fx.after(0.4 + revealCount * 0.22 + 0.5, () => winnerSparks());
+    wasShowdown = !!S.showdown;
 
     if (S.gun && S.gun.state === 'load') {
       const i = S.gun.pid, {out} = seatBasis(i);
@@ -600,7 +745,12 @@ function createScene(canvas, labelLayer) {
       }
     }
 
-    for (const [k, d] of dyn) if (!d.seen) { scene.remove(d.obj); dyn.delete(k); }
+    let gi = 0;
+    for (const [k, d] of dyn) {
+      if (d.seen) continue;
+      dyn.delete(k);
+      if (d.obj.userData.face && !root.__instant) gather(d, gi++); else scene.remove(d.obj);
+    }
     if (snap) { snap = false; camBase.copy(camPos); camera.position.copy(camPos); curLook.copy(camLook); gun.position.copy(gunTarget.pos); gun.quaternion.copy(gunTarget.quat); }
   }
 
@@ -776,7 +926,13 @@ function createScene(canvas, labelLayer) {
     const realDt = Math.min(0.05, clock.getDelta());
     const dt = fx.step(realDt, camera, renderer), t = now(); // dt is 0 during hit-stop, small in slow motion
     const k = d => root.__instant ? 1 : 1 - Math.exp(-dt * d);
-    for (const d of dyn.values()) { d.obj.position.lerp(d.pos, k(d.speed)); d.obj.quaternion.slerp(d.quat, k(d.speed)); }
+    for (const d of dyn.values()) {
+      if (d.flight) stepFlight(d, t);
+      else { d.obj.position.lerp(d.pos, k(d.speed)); d.obj.quaternion.slerp(d.quat, k(d.speed)); }
+      if (d.shake) cupShake(d, t);
+      if (d.obj.userData.face) cardGlow(d, t);
+    }
+    for (const d of leaving) if (!d.flight || stepFlight(d, t)) { scene.remove(d.obj); leaving.delete(d); }
     // gun: placement, then its moving parts
     const U = gun.userData;
     if (ga.drop) { gun.position.copy(ga.drop.pos); gun.quaternion.copy(ga.drop.quat); }
@@ -835,7 +991,7 @@ function createScene(canvas, labelLayer) {
     updateLabels();
     requestAnimationFrame(frame);
   }
-  root.__pokerDebug = {camera, scene, fx, seats: () => seats};
+  root.__pokerDebug = {camera, scene, fx, dyn, seats: () => seats};
   resize(); requestAnimationFrame(frame);
 
   return {
@@ -847,5 +1003,5 @@ function createScene(canvas, labelLayer) {
   };
 }
 
-root.PokerScene = {createScene, renderPortraits, CHARACTERS};
+root.PokerScene = {createScene, renderPortraits, CHARACTERS, DEAL};
 })(window);

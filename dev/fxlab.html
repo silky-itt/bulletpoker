@@ -40,9 +40,16 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   <button class="go" data-out="bang">Bang</button>
   <button class="go" data-out="godsave">God Save</button>
   <button id="reset">Reset</button>
+  <span style="opacity:.5">|</span>
+  <button class="go" data-game="poker">Auto poker</button>
+  <button class="go" data-game="deck">Auto deck</button>
+  <button class="go" data-game="dice">Auto dice</button>
+  <button id="stop">Stop</button>
 </div>
 <script src="../assets/vendor/three.min.js"></script>
 <script src="../engine.js"></script>
+<script src="../game.js"></script>
+<script src="../liars.js"></script>
 <script src="../fx.js"></script>
 <script src="../scene.js"></script>
 <script src="../audio.js"></script>
@@ -100,9 +107,66 @@ async function fire(out) {
 }
 document.querySelectorAll('[data-out]').forEach(b => b.onclick = () => fire(b.dataset.out));
 $('reset').onclick = () => { if (!busy) fresh(); };
-$('viewer').onchange = render;
+$('viewer').onchange = () => { if (S) scene3d.update(S, viewer(), false); };
 fresh();
-window.__lab = {fire, get S() { return S; }, scene3d};
+
+/* ----- auto table: a real game (game.js / liars.js) at full speed, every seat played by the page ----- */
+let game = null;
+function onEvent(type, d, GS) {
+  const talk = () => d.pid != null && scene3d.react(d.pid, 'talk');
+  const DEAL = PokerScene.DEAL;
+  switch (type) {
+    case 'deal': audio.play('deal', {count: d.count, delay: DEAL.shuffle, gap: DEAL.gap[GS.mode] || DEAL.gap.poker}); break;
+    case 'board': audio.play('board', d.count); break;
+    case 'check': audio.play('check'); talk(); break;
+    case 'bet': audio.play('bet', d.added); talk(); break;
+    case 'allin': audio.play('allin'); talk(); break;
+    case 'fold': audio.play('fold'); talk(); break;
+    case 'loadStart': audio.play('loadStart'); audio.tension(true); vignette(true); break;
+    case 'loadBullet': audio.play('loadBullet'); break;
+    case 'aim': audio.play('spin'); audio.tension(true); vignette(true); break;
+    case 'click': audio.play('click'); audio.tension(false); vignette(false); break;
+    case 'godsave': audio.play('godSave'); audio.tension(false); vignette(false); break;
+    case 'bang': audio.play('bang', d.pid === viewer()); audio.tension(false); vignette(false); flashRed(); break;
+    case 'win': case 'showdown': audio.play('win'); d.ids.forEach(id => scene3d.react(id, 'happy')); break;
+    case 'roll': audio.play('dice', d.count); break;
+    case 'play': audio.play('slap', {n: d.n}); talk(); break;
+    case 'bid': audio.play('bet', 1); talk(); break;
+    case 'liar': audio.play('liar'); talk(); break;
+    case 'reveal': audio.play(GS.mode === 'dice' ? 'dice' : 'switch', 2); break;
+  }
+}
+// Liar modes have no bots: pick a simple move whenever a seat is waiting
+function autoAct(GS) {
+  if (GS.awaiting == null || GS.gun) return;
+  const p = GS.players[GS.awaiting], key = GS.awaiting + ':' + GS.log.length;
+  if (autoAct.key === key) return; autoAct.key = key;
+  setTimeout(() => {
+    if (!game || game.state !== GS || GS.awaiting !== p.id) return;
+    if (GS.mode === 'deck') {
+      const o = LiarsGame.deckOptions(GS, p);
+      if (o.canLiar && (!o.canPlay || Math.random() < 0.35)) return game.act({type: 'liar'});
+      const n = 1 + Math.floor(Math.random() * o.maxPlay);
+      game.act({type: 'play', cards: Array.from({length: n}, (_, k) => k)});
+    } else {
+      const o = LiarsGame.diceOptions(GS, p);
+      if (o.canLiar && (!o.canBid || Math.random() < 0.35)) return game.act({type: 'liar'});
+      game.act({type: 'bid', q: o.min.q, f: o.min.f});
+    }
+  }, 900);
+}
+function auto(mode) {
+  if (game) game.stop();
+  busy = true; msg('');
+  const seats = animals.map((a, i) => ({name: names[i], animal: a, kind: mode === 'poker' ? 'bot' : 'human'}));
+  const make = {poker: PokerGame.createGame, deck: LiarsGame.createDeck, dice: LiarsGame.createDice}[mode];
+  game = make(seats, GS => { S = GS; scene3d.update(GS, viewer(), false); if (mode !== 'poker') autoAct(GS); }, {onEvent});
+  S = game.state; scene3d.setup(S.players);
+  game.start();
+}
+document.querySelectorAll('[data-game]').forEach(b => b.onclick = () => { audio.unlock(); auto(b.dataset.game); });
+$('stop').onclick = () => { if (game) game.stop(); game = null; busy = false; fresh(); };
+window.__lab = {fire, auto, get S() { return S; }, get game() { return game; }, scene3d};
 </script>
 </body>
 </html>
